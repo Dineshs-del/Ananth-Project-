@@ -1,11 +1,25 @@
 import React, { useMemo, useState } from 'react';
-import { ShieldCheck, ShieldAlert, Search, Bug } from 'lucide-react';
+import {
+  ShieldCheck,
+  ShieldAlert,
+  Search,
+  Bug,
+  List,
+  Network,
+  Activity,
+  Layers,
+  FileSpreadsheet,
+} from 'lucide-react';
 import type {
   AuditChainVerification,
   AuditEvent,
   BackendMode,
   BreakGlassRequest,
 } from '../types';
+import { GlassCard } from './ui/GlassCard';
+import { PressableButton } from './ui/PressableButton';
+import { StatusBadge } from './ui/StatusBadge';
+import { AuditChainVisualizer } from './ui/AuditChainVisualizer';
 
 interface AuditDashboardProps {
   requests: BreakGlassRequest[];
@@ -30,6 +44,8 @@ export const AuditDashboard: React.FC<AuditDashboardProps> = ({
 }) => {
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'both' | 'chain' | 'table'>('both');
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const filteredRequests = useMemo(() => {
     return requests.filter((req) => {
@@ -64,63 +80,160 @@ export const AuditDashboard: React.FC<AuditDashboardProps> = ({
     return { total: requests.length, pending, executed, blocked };
   }, [requests]);
 
+  const handleVerify = async () => {
+    setIsVerifying(true);
+    try {
+      await onVerifyChain();
+    } finally {
+      setTimeout(() => setIsVerifying(false), 800);
+    }
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Compact KPI Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 bg-white border border-slate-200 rounded-xl divide-y lg:divide-y-0 lg:divide-x divide-slate-200">
-        <div className="p-5">
-          <div className="text-xs text-slate-500">Total Requests</div>
-          <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-slate-900">
+    <div data-testid="audit-dashboard" className="space-y-6">
+      {/* KPI Stats Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <GlassCard className="p-5 space-y-1">
+          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400">Total Requests</div>
+          <div className="font-mono text-2xl font-bold tabular-nums text-white">
             {counts.total}
           </div>
-        </div>
-        <div className="p-5">
-          <div className="text-xs text-slate-500">Awaiting Gate</div>
-          <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-[#B45309]">
+        </GlassCard>
+
+        <GlassCard className="p-5 space-y-1">
+          <div className="text-[11px] font-mono uppercase tracking-wider text-amber-400">Awaiting Gate</div>
+          <div className="font-mono text-2xl font-bold tabular-nums text-amber-300">
             {counts.pending}
           </div>
-        </div>
-        <div className="p-5">
-          <div className="text-xs text-slate-500">Simulated Executed</div>
-          <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-[#15803D]">
+        </GlassCard>
+
+        <GlassCard className="p-5 space-y-1">
+          <div className="text-[11px] font-mono uppercase tracking-wider text-emerald-400">Simulated Executed</div>
+          <div className="font-mono text-2xl font-bold tabular-nums text-emerald-300">
             {counts.executed}
           </div>
-        </div>
-        <div className="p-5">
-          <div className="text-xs text-slate-500">Blocked / Rejected</div>
-          <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-[#B91C1C]">
+        </GlassCard>
+
+        <GlassCard className="p-5 space-y-1">
+          <div className="text-[11px] font-mono uppercase tracking-wider text-rose-400">Blocked / Rejected</div>
+          <div className="font-mono text-2xl font-bold tabular-nums text-rose-300">
             {counts.blocked}
           </div>
-        </div>
+        </GlassCard>
       </div>
 
-      {/* Break-Glass Request Ledger */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
-          <h2 className="text-base font-semibold text-slate-900">Break-Glass Request Ledger</h2>
+      {/* Tamper-Evident SHA-256 Hash Chain Visualization */}
+      <GlassCard className="p-6 space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-white font-display flex items-center gap-2">
+              <Network className="w-5 h-5 text-cyan-400" />
+              Tamper-Evident SHA-256 Audit Chain
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Every break-glass transition is hashed with the previous event block to ensure immutability.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {backendMode === 'local' && (
+              <PressableButton
+                type="button"
+                data-testid="simulate-tamper-btn"
+                variant="amber"
+                size="sm"
+                icon={Bug}
+                onClick={onSimulateTamper}
+              >
+                Simulate Tamper
+              </PressableButton>
+            )}
+            <PressableButton
+              type="button"
+              data-testid="verify-chain-btn"
+              variant="primary"
+              size="sm"
+              icon={ShieldCheck}
+              loading={isVerifying}
+              onClick={handleVerify}
+              glow
+            >
+              Verify Hash Chain
+            </PressableButton>
+          </div>
+        </div>
+
+        {/* Verification Banner */}
+        {chainVerification && (
+          <div
+            data-testid="chain-verification-banner"
+            className={`p-4 rounded-xl border flex items-center justify-between gap-4 text-xs font-mono ${
+              chainVerification.valid
+                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
+                : 'bg-rose-950/50 border-rose-500/50 text-rose-300 shadow-[0_0_20px_rgba(244,63,94,0.3)] animate-pulse'
+            }`}
+          >
+            <div className="flex items-center gap-2 font-semibold">
+              {chainVerification.valid ? (
+                <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+              ) : (
+                <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0" />
+              )}
+              <span>
+                {chainVerification.valid
+                  ? `Integrity verified across ${chainVerification.checked_events} chained audit event block(s).`
+                  : `Tampering detected! Hash chain broke at audit event #${chainVerification.broken_at_id}.`}
+              </span>
+            </div>
+            <span className="font-bold px-2.5 py-1 rounded-md bg-white/10 uppercase tracking-widest">
+              {chainVerification.valid ? 'VALID' : 'CORRUPTED'}
+            </span>
+          </div>
+        )}
+
+        {/* 3D Visualizer Component */}
+        <AuditChainVisualizer
+          events={auditEvents}
+          verification={chainVerification}
+          onVerify={handleVerify}
+          isVerifying={isVerifying}
+        />
+      </GlassCard>
+
+      {/* Break-Glass Request Ledger Table */}
+      <GlassCard className="overflow-hidden">
+        <div className="px-6 py-4 border-b border-white/[0.08] flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <FileSpreadsheet className="w-4 h-4 text-cyan-400" />
+            <h2 className="text-base font-bold text-white font-display">
+              Break-Glass Request Ledger
+            </h2>
+          </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
+                data-testid="audit-search-input"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search action or ID..."
-                className="h-8 pl-8 pr-3 text-xs bg-[#F8FAFC] border border-slate-200 rounded-md focus:outline-none focus:border-[#2563EB]"
+                className="h-8 pl-8 pr-3 text-xs font-mono bg-slate-950/80 border border-white/10 rounded-lg text-white focus:outline-none focus:border-cyan-400"
               />
             </div>
 
-            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+            <div className="flex items-center gap-1 p-1 bg-slate-950/80 border border-white/10 rounded-lg">
               {STATUS_FILTERS.map((tab) => (
                 <button
                   key={tab}
                   type="button"
+                  data-testid={`filter-tab-${tab.toLowerCase()}`}
                   onClick={() => setStatusFilter(tab)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer ${
                     statusFilter === tab
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold'
+                      : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   {tab === 'ALL' ? 'All' : tab.charAt(0) + tab.slice(1).toLowerCase()}
@@ -131,60 +244,57 @@ export const AuditDashboard: React.FC<AuditDashboardProps> = ({
         </div>
 
         {filteredRequests.length === 0 ? (
-          <div className="px-6 py-10 text-center text-sm text-slate-500">
-            No break-glass requests match the current filter. Create a request in Requester Gate to populate the ledger.
+          <div className="px-6 py-10 text-center text-xs text-slate-400 font-mono">
+            No break-glass requests match the current filter.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-[#F8FAFC] text-[11px] font-medium text-slate-500">
-                  <th className="py-2.5 px-6">Request</th>
-                  <th className="py-2.5 px-4">Requester</th>
-                  <th className="py-2.5 px-4">Voice Risk</th>
-                  <th className="py-2.5 px-4">Status</th>
-                  <th className="py-2.5 px-4">Reviewer</th>
-                  <th className="py-2.5 px-6 text-right">Action</th>
+                <tr className="border-b border-white/[0.08] bg-slate-950/40 text-[11px] font-mono uppercase tracking-wider text-slate-400">
+                  <th className="py-3 px-6">Request</th>
+                  <th className="py-3 px-4">Requester</th>
+                  <th className="py-3 px-4">Voice Risk</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Reviewer</th>
+                  <th className="py-3 px-6 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-sm">
+              <tbody className="divide-y divide-white/[0.04] text-xs font-mono">
                 {filteredRequests.map((req) => (
-                  <tr key={req.request_id} className="hover:bg-slate-50/80 transition-colors">
+                  <tr
+                    key={req.request_id}
+                    data-testid={`audit-row-${req.request_id}`}
+                    className="hover:bg-white/[0.02] transition-colors"
+                  >
                     <td className="py-3 px-6">
-                      <div className="font-medium text-slate-900">{req.action_summary}</div>
-                      <div className="text-xs font-mono text-slate-500">
+                      <div className="font-semibold text-white font-sans text-sm">{req.action_summary}</div>
+                      <div className="text-[11px] text-cyan-400/80">
                         {req.request_id} · {req.target_resource}
                       </div>
                     </td>
-                    <td className="py-3 px-4 text-xs text-slate-700">
+                    <td className="py-3 px-4 text-slate-300">
                       {req.employee_name || req.employee_id}
                     </td>
-                    <td className="py-3 px-4 font-mono text-xs font-semibold">
-                      <span
-                        className={
-                          req.voice_result?.risk === 'PASS'
-                            ? 'text-[#15803D]'
-                            : req.voice_result?.risk === 'FAIL'
-                              ? 'text-[#B91C1C]'
-                              : req.voice_result?.risk === 'BORDERLINE'
-                                ? 'text-[#B45309]'
-                                : 'text-slate-400'
-                        }
-                      >
-                        {req.voice_result?.risk || 'PENDING'}
-                      </span>
+                    <td className="py-3 px-4">
+                      {req.voice_result ? (
+                        <StatusBadge status={req.voice_result.risk} size="sm" />
+                      ) : (
+                        <span className="text-slate-500">PENDING</span>
+                      )}
                     </td>
-                    <td className="py-3 px-4 text-xs font-medium text-slate-800">
-                      {req.status.replace(/_/g, ' ')}
+                    <td className="py-3 px-4">
+                      <StatusBadge status={req.status} size="sm" />
                     </td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-600">
+                    <td className="py-3 px-4 text-slate-400">
                       {req.reviewer_id || '—'}
                     </td>
                     <td className="py-3 px-6 text-right">
                       <button
                         type="button"
+                        data-testid={`inspect-request-${req.request_id}`}
                         onClick={() => onSelectRequest(req)}
-                        className="text-xs font-medium text-[#2563EB] hover:underline whitespace-nowrap cursor-pointer"
+                        className="text-cyan-400 hover:text-cyan-300 underline font-medium cursor-pointer"
                       >
                         Inspect
                       </button>
@@ -195,102 +305,7 @@ export const AuditDashboard: React.FC<AuditDashboardProps> = ({
             </table>
           </div>
         )}
-      </div>
-
-      {/* Tamper-Evident Audit Chain */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">
-              Tamper-Evident Audit Log (SHA-256 Chain)
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Every state transition is hashed with the previous entry to detect unauthorized record edits.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            {backendMode === 'local' && (
-              <button
-                type="button"
-                onClick={onSimulateTamper}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#B45309] bg-white border border-amber-300 hover:bg-amber-50 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Bug className="w-3.5 h-3.5" />
-                Simulate Tamper
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onVerifyChain}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white bg-[#0F172A] hover:bg-slate-800 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Verify Hash Chain
-            </button>
-          </div>
-        </div>
-
-        {chainVerification && (
-          <div
-            className={`px-6 py-3 border-b border-slate-200 flex items-center justify-between gap-4 text-xs ${
-              chainVerification.valid ? 'bg-emerald-50/50 text-[#15803D]' : 'bg-red-50/60 text-[#B91C1C]'
-            }`}
-          >
-            <div className="flex items-center gap-2 font-medium">
-              {chainVerification.valid ? (
-                <ShieldCheck className="w-4 h-4 shrink-0" />
-              ) : (
-                <ShieldAlert className="w-4 h-4 shrink-0" />
-              )}
-              <span>
-                {chainVerification.valid
-                  ? `Integrity verified across ${chainVerification.checked_events} chained audit event(s).`
-                  : `Tampering detected! Hash chain broke at audit event #${chainVerification.broken_at_id}.`}
-              </span>
-            </div>
-            <span className="font-mono tabular-nums">
-              {chainVerification.valid ? 'VALID' : 'BROKEN'}
-            </span>
-          </div>
-        )}
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200 bg-[#F8FAFC] text-[11px] font-medium text-slate-500">
-                <th className="py-2.5 px-6">#</th>
-                <th className="py-2.5 px-4">Event</th>
-                <th className="py-2.5 px-4">Actor</th>
-                <th className="py-2.5 px-4">Request</th>
-                <th className="py-2.5 px-4">Timestamp</th>
-                <th className="py-2.5 px-6 text-right">Event Hash</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 text-xs">
-              {auditEvents.map((ev) => (
-                <tr key={ev.id} className="hover:bg-slate-50/70">
-                  <td className="py-2.5 px-6 font-mono tabular-nums text-slate-500">{ev.id}</td>
-                  <td className="py-2.5 px-4 font-mono font-medium text-slate-900">
-                    {ev.event_type}
-                  </td>
-                  <td className="py-2.5 px-4 font-mono text-slate-700">{ev.actor_id}</td>
-                  <td className="py-2.5 px-4 font-mono text-slate-600">{ev.request_id || '—'}</td>
-                  <td className="py-2.5 px-4 font-mono tabular-nums text-slate-500">
-                    {new Date(ev.created_at).toLocaleTimeString()}
-                  </td>
-                  <td
-                    className="py-2.5 px-6 font-mono text-slate-500 text-right"
-                    title={ev.event_hash}
-                  >
-                    {ev.event_hash.slice(0, 14)}...
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      </GlassCard>
     </div>
   );
 };

@@ -8,6 +8,8 @@ import {
   ShieldCheck,
   Square,
   Volume2,
+  PhoneCall,
+  Activity,
 } from 'lucide-react';
 import type {
   BackendMode,
@@ -18,6 +20,9 @@ import type {
   LiveGuardState,
 } from '../types';
 import { voiceGateEngine } from '../lib/voiceGateEngine';
+import { GlassCard } from './ui/GlassCard';
+import { PressableButton } from './ui/PressableButton';
+import { StatusBadge } from './ui/StatusBadge';
 
 const CHUNK_DURATION_MS = 7000;
 const STATUS_POLL_MS = 2000;
@@ -46,49 +51,6 @@ function pickAudioMimeType(): { mimeType: string; ext: string } {
     }
   }
   return { mimeType: '', ext: '.webm' };
-}
-
-function stateStyles(state: LiveGuardState): {
-  label: string;
-  barWidth: string;
-  barColor: string;
-  badgeClass: string;
-  panelBorder: string;
-} {
-  switch (state) {
-    case 'PASS':
-      return {
-        label: 'PASS (2+ consecutive chunks)',
-        barWidth: 'w-full',
-        barColor: 'bg-emerald-600',
-        badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-        panelBorder: 'border-emerald-200',
-      };
-    case 'BORDERLINE':
-      return {
-        label: 'BORDERLINE — Callback Recommended',
-        barWidth: 'w-2/3',
-        barColor: 'bg-amber-500',
-        badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
-        panelBorder: 'border-amber-200',
-      };
-    case 'FAIL':
-      return {
-        label: 'FAIL (LATCHED — Request Blocked)',
-        barWidth: 'w-full',
-        barColor: 'bg-red-600',
-        badgeClass: 'bg-red-50 text-red-800 border-red-200',
-        panelBorder: 'border-red-300',
-      };
-    default:
-      return {
-        label: 'MONITORING — Collecting Evidence',
-        barWidth: 'w-1/3',
-        barColor: 'bg-blue-600',
-        badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
-        panelBorder: 'border-slate-200',
-      };
-  }
 }
 
 export const LiveGuardPanel: React.FC<LiveGuardPanelProps> = ({
@@ -123,7 +85,6 @@ export const LiveGuardPanel: React.FC<LiveGuardPanelProps> = ({
     fixtureOverrideRef.current = fixtureOverride;
   }, [fixtureOverride]);
 
-  // Pre-select the newest request & its employee if none selected yet.
   useEffect(() => {
     if (!selectedRequestId && requests.length > 0) {
       const first = requests[0];
@@ -194,7 +155,6 @@ export const LiveGuardPanel: React.FC<LiveGuardPanelProps> = ({
     };
   }, [teardownMedia]);
 
-  // Short-interval HTTP polling keeps the guard screen synced with backend & Telegram block actions.
   useEffect(() => {
     if (!session || !session.active) return;
     const reqId = session.request_id;
@@ -287,7 +247,6 @@ export const LiveGuardPanel: React.FC<LiveGuardPanelProps> = ({
           const seq = dispatchedCountRef.current + 1;
           dispatchedCountRef.current = seq;
           const outBlob = new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' });
-          // Fire-and-forget POST so recording never pauses waiting for the previous response.
           uploadChunkFireAndForget(outBlob, ext, seq);
         }
       };
@@ -301,14 +260,12 @@ export const LiveGuardPanel: React.FC<LiveGuardPanelProps> = ({
           recorder.stop();
         }
         if (willHitCap) {
-          // Stop local capture cleanly; backend marks session ended once the final chunk finishes.
           teardownMedia();
           setNoticeMessage(
             `Reached the cap of ${maxChunksRef.current} chunks. Final chunk is being checked.`,
           );
           return;
         }
-        // Immediately begin the next non-overlapping ~7-second chunk.
         startNextChunkRecorder(stream, mimeType, ext);
       }, CHUNK_DURATION_MS);
     },
@@ -356,14 +313,13 @@ export const LiveGuardPanel: React.FC<LiveGuardPanelProps> = ({
     const audioTracks = displayStream.getAudioTracks();
     const videoTracks = displayStream.getVideoTracks();
 
-    // Immediately discard video tracks; only the audio track is ever used.
     for (const vt of videoTracks) {
       vt.stop();
     }
 
     if (audioTracks.length === 0) {
       setErrorMessage(
-        'No audio track was captured. In the browser picker, select a specific Browser Tab (for example Google Meet) and make sure the "Share tab audio" checkbox is ticked.',
+        'No audio track was captured. In the browser picker, select a specific Browser Tab and tick "Share tab audio".',
       );
       return;
     }
@@ -407,101 +363,89 @@ export const LiveGuardPanel: React.FC<LiveGuardPanelProps> = ({
   };
 
   const selectedRequest = requests.find((r) => r.request_id === selectedRequestId) || null;
-  const meter = session ? stateStyles(session.state) : stateStyles('MONITORING');
 
   return (
-    <div className="space-y-6 max-w-[1040px]">
-      {/* Header & Honesty Disclosures */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+    <div data-testid="live-guard-panel" className="space-y-6 max-w-[1100px] mx-auto">
+      {/* Header & Disclosures */}
+      <GlassCard className="p-6 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+          <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <Radio className="w-5 h-5 text-[#2563EB]" />
-              <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-                Live Call Guard
+              <Radio className="w-5 h-5 text-cyan-400 animate-pulse" />
+              <h1 className="text-xl font-bold tracking-tight text-white font-display">
+                Live Call Guard Monitor
               </h1>
             </div>
-            <p className="mt-1 text-sm text-slate-600">
-              Guard &amp; approver view only — do not share this screen with the caller.
+            <p className="text-xs text-slate-400">
+              Guard &amp; approver view only — do not share this screen with the caller. Evidence, not proof.
             </p>
           </div>
-          <div className="text-right text-xs text-slate-600 space-y-1">
-            <div className="font-semibold text-slate-900">
-              Near-live: about 7 to 10 second delay, chunk-based
-            </div>
-            <div>Evidence, not proof.</div>
+
+          <div className="text-right text-xs font-mono space-y-0.5">
+            <div className="text-cyan-300 font-semibold">Near-live: ~7–10s delay, chunk-based</div>
+            <div className="text-slate-500">Audio deleted immediately after verification</div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-          <div className="flex items-start gap-2.5 p-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-700">
-            <Volume2 className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+        {/* Call rules & info cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950/60 border border-white/5 text-slate-300">
+            <Volume2 className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
             <div>
-              <span className="font-semibold text-slate-900">Browser tab audio only: </span>
-              Captures audio from a shared browser tab (such as Google Meet or Zoom Web). It does
-              not hear installed desktop apps or phone calls.
+              <strong className="text-white">Tab audio capture: </strong>
+              Captures audio stream from shared browser tab (Google Meet / Zoom Web).
             </div>
           </div>
-          <div className="flex items-start gap-2.5 p-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-700">
-            <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950/60 border border-white/5 text-slate-300">
+            <Info className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
             <div>
-              <span className="font-semibold text-slate-900">Decision rules: </span>
-              PASS requires 2 consecutive PASS chunks. BORDERLINE or errors reset the streak. Any
-              FAIL latches permanently for the session and blocks the request.
+              <strong className="text-white">Decision Policy: </strong>
+              PASS requires 2 consecutive PASS chunks. Any FAIL latches permanently and blocks request.
             </div>
           </div>
         </div>
-      </div>
+      </GlassCard>
 
-      {/* Consent & Session Configuration */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
-        {/* Consent Banner */}
-        <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 space-y-3">
+      {/* Participant Consent & Configuration */}
+      <GlassCard className="p-6 space-y-5">
+        <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-500/40 space-y-3">
           <div className="flex items-start gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-            <div className="text-sm text-amber-950">
-              <div className="font-semibold">Participant consent required</div>
-              <p className="mt-0.5 text-xs text-amber-900">
-                Only monitor calls where everyone on the call has agreed to live voice checking.
-                Audio chunks are verified and deleted immediately on the server; consent is recorded
-                in the hash-chained audit log.
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-0.5 text-slate-200">
+              <div className="font-bold text-amber-300 font-mono">PARTICIPANT CONSENT REQUIRED</div>
+              <p className="text-slate-400 leading-relaxed">
+                Only monitor calls where all participants have consented to automated voice security analysis. Consent is recorded in the hash-chained audit log.
               </p>
             </div>
           </div>
-          <label className="flex items-center gap-2.5 text-xs font-medium text-amber-950 cursor-pointer select-none">
+          <label className="flex items-center gap-2.5 text-xs text-amber-200 font-medium cursor-pointer select-none">
             <input
               type="checkbox"
+              data-testid="consent-checkbox"
               checked={consentChecked}
               disabled={isCapturing}
               onChange={(e) => setConsentChecked(e.target.checked)}
-              className="h-4 w-4 rounded border-amber-400 text-slate-900 focus:ring-slate-900"
+              className="h-4 w-4 rounded border-amber-400/40 text-cyan-500 focus:ring-cyan-400"
             />
-            <span>I confirm everyone on this call has agreed to live voice monitoring.</span>
+            <span>I confirm all call participants have explicitly consented to live voice monitoring.</span>
           </label>
         </div>
 
-        {/* Selectors */}
+        {/* Request and Employee Selectors */}
         {requests.length === 0 ? (
-          <div className="p-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-slate-700">
-              No break-glass requests exist yet. Create a request first to attach Live Call Guard.
-            </div>
-            <button
-              type="button"
-              onClick={onCreateRequestRedirect}
-              className="px-3.5 py-2 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md cursor-pointer"
-            >
-              Create Request
-            </button>
+          <div className="p-6 rounded-xl border border-dashed border-white/10 bg-slate-950/40 text-center space-y-3">
+            <p className="text-xs text-slate-400 font-mono">
+              No break-glass requests found. Create a request in Requester Gate first.
+            </p>
+            <PressableButton variant="primary" size="sm" onClick={onCreateRequestRedirect}>
+              Create Break-Glass Request
+            </PressableButton>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label
-                htmlFor="live-request-select"
-                className="block text-xs font-medium text-slate-700"
-              >
-                Break-Glass Request
+            <div>
+              <label htmlFor="live-request-select" className="block text-xs font-mono text-slate-300 mb-1.5 uppercase tracking-wider">
+                Target Break-Glass Request
               </label>
               <select
                 id="live-request-select"
@@ -513,32 +457,29 @@ export const LiveGuardPanel: React.FC<LiveGuardPanelProps> = ({
                   const found = requests.find((r) => r.request_id === nextId);
                   if (found) setClaimedEmployeeId(found.employee_id);
                 }}
-                className="w-full h-10 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-[#2563EB] disabled:bg-slate-100"
+                className="w-full h-10 px-3 text-xs font-mono bg-slate-950/80 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-400"
               >
                 {requests.map((r) => (
-                  <option key={r.request_id} value={r.request_id}>
+                  <option key={r.request_id} value={r.request_id} className="bg-slate-950">
                     {r.request_id} — {r.action_summary} ({r.status})
                   </option>
                 ))}
               </select>
             </div>
 
-            <div className="space-y-1.5">
-              <label
-                htmlFor="live-employee-select"
-                className="block text-xs font-medium text-slate-700"
-              >
-                Claimed Employee (who the caller says they are)
+            <div>
+              <label htmlFor="live-employee-select" className="block text-xs font-mono text-slate-300 mb-1.5 uppercase tracking-wider">
+                Claimed Employee Identity
               </label>
               <select
                 id="live-employee-select"
                 disabled={isCapturing}
                 value={claimedEmployeeId}
                 onChange={(e) => setClaimedEmployeeId(e.target.value)}
-                className="w-full h-10 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-[#2563EB] disabled:bg-slate-100"
+                className="w-full h-10 px-3 text-xs font-mono bg-slate-950/80 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-400"
               >
                 {employees.map((emp) => (
-                  <option key={emp.employee_id} value={emp.employee_id}>
+                  <option key={emp.employee_id} value={emp.employee_id} className="bg-slate-950">
                     {emp.display_name} ({emp.employee_id})
                   </option>
                 ))}
@@ -547,206 +488,187 @@ export const LiveGuardPanel: React.FC<LiveGuardPanelProps> = ({
           </div>
         )}
 
-        {/* Fixture Demo Override (ignored by backend when AI_MODE=live) */}
-        <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-slate-100">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-            <label htmlFor="live-fixture-override" className="font-medium text-slate-700">
-              Next-chunk fixture scenario ({backendMode === 'live' ? 'fixture AI_MODE only' : 'Demo Engine'}):
-            </label>
+        {/* Start / Stop Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-white/[0.08]">
+          <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+            <span>Scenario override:</span>
             <select
-              id="live-fixture-override"
               value={fixtureOverride}
               onChange={(e) => setFixtureOverride(e.target.value as FixtureScenario | '')}
-              className="h-8 px-2.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:border-[#2563EB]"
+              className="h-8 px-2 text-xs font-mono bg-slate-950 border border-white/10 rounded-md text-slate-200"
             >
-              <option value="">Default (env / sidebar)</option>
+              <option value="">Default</option>
               <option value="pass">Pass</option>
               <option value="borderline">Borderline</option>
-              <option value="fail">Fail (triggers latch &amp; block)</option>
-              <option value="error">Error (fails closed to Borderline)</option>
+              <option value="fail">Fail (triggers latch)</option>
+              <option value="error">Error</option>
             </select>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div>
             {!isCapturing ? (
-              <button
+              <PressableButton
                 type="button"
+                data-testid="start-live-guard-btn"
+                variant="primary"
                 disabled={!consentChecked || !selectedRequestId || !claimedEmployeeId}
+                icon={Radio}
                 onClick={handleStartLiveGuard}
-                className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-[#0F172A] hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-lg transition-colors cursor-pointer"
+                glow
               >
-                <Radio className="w-4 h-4" />
-                Start Live Guard
-              </button>
+                Start Live Call Guard
+              </PressableButton>
             ) : (
-              <button
+              <PressableButton
                 type="button"
+                data-testid="stop-live-guard-btn"
+                variant="rose"
+                icon={Square}
                 onClick={() => void stopLiveGuard()}
-                className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer"
               >
-                <Square className="w-3.5 h-3.5 fill-current" />
                 Stop Live Guard
-              </button>
+              </PressableButton>
             )}
           </div>
         </div>
 
         {errorMessage && (
-          <div className="p-3.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-800 flex items-start gap-2">
-            <ShieldAlert className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-            <span>{errorMessage}</span>
-          </div>
+          <p className="p-3 rounded-lg bg-rose-950/40 border border-rose-500/40 text-xs font-mono text-rose-300">
+            {errorMessage}
+          </p>
         )}
-
         {noticeMessage && (
-          <div className="p-3.5 rounded-lg bg-slate-100 border border-slate-200 text-xs text-slate-800">
+          <p className="p-3 rounded-lg bg-slate-950/80 border border-white/10 text-xs font-mono text-slate-300">
             {noticeMessage}
-          </div>
+          </p>
         )}
-      </div>
+      </GlassCard>
 
-      {/* Live Risk Meter, Reason, Next Step & Chunk History */}
+      {/* Active Session Risk Meter & Chunk Timeline */}
       {session && (
-        <div className={`bg-white border ${meter.panelBorder} rounded-xl p-6 space-y-6`}>
-          {/* Top Metrics Row */}
+        <GlassCard
+          variant={session.state === 'FAIL' ? 'rose' : session.state === 'PASS' ? 'emerald' : 'default'}
+          className="p-6 space-y-6"
+        >
+          {/* Metrics Row */}
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="text-xs font-medium text-slate-500">
-                Guard Risk Meter — {session.request_id}
-              </div>
-              <div className="flex flex-wrap items-center gap-2.5">
-                <span
-                  className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md border ${meter.badgeClass}`}
-                >
-                  {session.state === 'PASS' ? (
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                  ) : session.state === 'FAIL' ? (
-                    <ShieldAlert className="w-3.5 h-3.5" />
-                  ) : (
-                    <Radio className="w-3.5 h-3.5" />
-                  )}
-                  {meter.label}
-                </span>
-                <span className="text-xs font-mono text-slate-600 tabular-nums">
-                  Request status: {session.request_status}
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+                Session Monitor · {session.request_id}
+              </span>
+              <div className="flex items-center gap-3">
+                <StatusBadge status={session.state} size="lg" />
+                <span className="text-xs font-mono text-slate-400">
+                  Request: <strong className="text-white">{session.request_status}</strong>
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-5 text-xs font-mono tabular-nums text-slate-700">
+            <div className="flex items-center gap-6 font-mono text-xs tabular-nums text-slate-300">
               <div>
-                <div className="text-[11px] font-sans text-slate-500">PASS Streak</div>
-                <div className="font-semibold text-slate-900">
-                  {session.fail_latched ? 'LOCKED (FAIL)' : `${session.pass_streak} / 2`}
-                </div>
+                <span className="text-[10px] text-slate-500 block uppercase">PASS Streak</span>
+                <span className="font-bold text-white">
+                  {session.fail_latched ? 'LATCHED (FAIL)' : `${session.pass_streak} / 2`}
+                </span>
               </div>
               <div>
-                <div className="text-[11px] font-sans text-slate-500">Chunks Used</div>
-                <div className="font-semibold text-slate-900">
+                <span className="text-[10px] text-slate-500 block uppercase">Chunks</span>
+                <span className="font-bold text-white">
                   {session.chunks_processed} / {session.max_chunks}
-                </div>
+                </span>
               </div>
               <div>
-                <div className="text-[11px] font-sans text-slate-500">Capture</div>
-                <div className="font-semibold text-slate-900">
-                  {isCapturing
-                    ? inFlightChunks > 0
-                      ? `Live (${inFlightChunks} checking)`
-                      : 'Live (7s chunks)'
-                    : 'Stopped'}
-                </div>
+                <span className="text-[10px] text-slate-500 block uppercase">Status</span>
+                <span className={`font-bold ${isCapturing ? 'text-cyan-400 animate-pulse' : 'text-slate-400'}`}>
+                  {isCapturing ? 'STREAMING' : 'STOPPED'}
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Risk Meter Bar */}
-          <div className="space-y-1.5">
-            <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
+          {/* Rolling Risk Progress Bar */}
+          <div className="space-y-1.5" data-testid="guard-risk-meter">
+            <div className="h-2.5 w-full bg-slate-950 rounded-full overflow-hidden border border-white/5">
               <div
-                className={`h-full transition-all duration-300 ${meter.barWidth} ${meter.barColor}`}
+                className={`h-full transition-all duration-300 ${
+                  session.state === 'PASS'
+                    ? 'w-full bg-emerald-400 shadow-[0_0_10px_#10b981]'
+                    : session.state === 'FAIL'
+                      ? 'w-full bg-rose-500 shadow-[0_0_10px_#f43f5e]'
+                      : session.state === 'BORDERLINE'
+                        ? 'w-2/3 bg-amber-400 shadow-[0_0_10px_#f59e0b]'
+                        : 'w-1/3 bg-cyan-400'
+                }`}
               />
             </div>
-            <div className="flex justify-between text-[11px] text-slate-500">
-              <span>Near-live (7–10s delay, chunk-based)</span>
-              <span>
-                Claimed caller: {session.claimed_employee_name || session.claimed_employee_id}
-              </span>
+            <div className="flex justify-between text-[11px] font-mono text-slate-400">
+              <span>{session.state} indicator</span>
+              <span>Claimed: {session.claimed_employee_name || session.claimed_employee_id}</span>
             </div>
           </div>
 
-          {/* Last Reason & Plain Next Step */}
+          {/* Last Reason & Actionable Next Step */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
-              <div className="text-xs font-semibold text-slate-900">Last Check Reason</div>
-              <p className="text-sm text-slate-700 leading-relaxed">{session.last_reason}</p>
+            <div className="p-4 rounded-xl bg-slate-950/70 border border-white/5 space-y-1">
+              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">
+                Last Evaluated Reason
+              </span>
+              <p className="text-xs text-slate-200 font-mono leading-relaxed">{session.last_reason}</p>
             </div>
+
             <div
-              className={`p-4 rounded-lg border space-y-1 ${
+              className={`p-4 rounded-xl border space-y-1 ${
                 session.state === 'FAIL'
-                  ? 'bg-red-50 border-red-200'
-                  : session.state === 'BORDERLINE'
-                    ? 'bg-amber-50 border-amber-200'
-                    : 'bg-slate-50 border-slate-200'
+                  ? 'bg-rose-950/40 border-rose-500/40 text-rose-200'
+                  : 'bg-slate-950/70 border-white/5 text-slate-200'
               }`}
             >
-              <div className="text-xs font-semibold text-slate-900">Plain Next Step</div>
-              <p className="text-sm text-slate-800 leading-relaxed">{session.next_step}</p>
+              <span className="text-[10px] font-mono uppercase tracking-wider block text-cyan-400">
+                Actionable Next Step
+              </span>
+              <p className="text-xs font-mono leading-relaxed">{session.next_step}</p>
               {selectedRequest?.known_callback_hint && (
-                <p className="text-xs text-slate-600 pt-1">
-                  Known callback directory: {selectedRequest.known_callback_hint}
-                </p>
+                <div className="pt-1 flex items-center gap-1.5 text-[11px] font-mono text-slate-400">
+                  <PhoneCall className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Call back: {selectedRequest.known_callback_hint}</span>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Chunk History (no raw audio, no numeric scores for caller) */}
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">Chunk History</h2>
-              <span className="text-xs text-slate-500">
-                Audio chunks are deleted immediately after each check.
-              </span>
+          {/* Chunk History Table */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="font-bold text-white uppercase tracking-wider">Chunk History</span>
+              <span className="text-slate-500">Zero raw audio retained</span>
             </div>
 
             {session.chunks.length === 0 ? (
-              <div className="p-4 rounded-lg border border-dashed border-slate-200 text-xs text-slate-500">
-                Waiting for the first 7-second audio chunk to finish recording and return from verification...
+              <div className="p-4 rounded-xl border border-dashed border-white/10 text-center text-xs font-mono text-slate-500">
+                Listening for 7-second audio chunks...
               </div>
             ) : (
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-left border-collapse text-xs">
+              <div className="border border-white/10 rounded-xl overflow-hidden">
+                <table className="w-full text-left border-collapse text-xs font-mono">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500">
-                      <th className="py-2.5 px-3 font-medium">Chunk</th>
-                      <th className="py-2.5 px-3 font-medium">Time</th>
-                      <th className="py-2.5 px-3 font-medium">Risk</th>
-                      <th className="py-2.5 px-3 font-medium">Reason</th>
+                    <tr className="bg-slate-950/60 border-b border-white/[0.08] text-slate-400 text-[11px]">
+                      <th className="py-2.5 px-3">Chunk</th>
+                      <th className="py-2.5 px-3">Time</th>
+                      <th className="py-2.5 px-3">Risk</th>
+                      <th className="py-2.5 px-3">Evidence Details</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-white/[0.04]">
                     {[...session.chunks].reverse().map((chunk) => (
-                      <tr key={chunk.chunk_index} className="bg-white">
-                        <td className="py-2.5 px-3 font-mono tabular-nums text-slate-700 whitespace-nowrap">
-                          #{chunk.chunk_index}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap">
+                      <tr key={chunk.chunk_index} className="hover:bg-white/[0.02]">
+                        <td className="py-2.5 px-3 text-cyan-400 font-bold">#{chunk.chunk_index}</td>
+                        <td className="py-2.5 px-3 text-slate-400">
                           {new Date(chunk.received_at).toLocaleTimeString()}
                         </td>
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 font-semibold rounded border ${
-                              chunk.risk === 'PASS'
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                : chunk.risk === 'FAIL'
-                                  ? 'bg-red-50 text-red-800 border-red-200'
-                                  : 'bg-amber-50 text-amber-800 border-amber-200'
-                            }`}
-                          >
-                            {chunk.risk === 'PASS' && <CheckCircle2 className="w-3 h-3" />}
-                            {chunk.risk}
-                          </span>
+                        <td className="py-2.5 px-3">
+                          <StatusBadge status={chunk.risk} size="sm" />
                         </td>
-                        <td className="py-2.5 px-3 text-slate-700">{chunk.reason}</td>
+                        <td className="py-2.5 px-3 text-slate-300">{chunk.reason}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -754,7 +676,7 @@ export const LiveGuardPanel: React.FC<LiveGuardPanelProps> = ({
               </div>
             )}
           </div>
-        </div>
+        </GlassCard>
       )}
     </div>
   );
