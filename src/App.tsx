@@ -37,6 +37,7 @@ import { ApproverPhone } from './components/ApproverPhone';
 import { AuditDashboard } from './components/AuditDashboard';
 import { EnrollmentPanel } from './components/EnrollmentPanel';
 import { LiveGuardPanel } from './components/LiveGuardPanel';
+import { TelegramPreview } from './components/TelegramPreview';
 import { AmbientBackground } from './components/ui/AmbientBackground';
 import { PressableButton } from './components/ui/PressableButton';
 import { StatusBadge } from './components/ui/StatusBadge';
@@ -677,17 +678,10 @@ export default function App() {
           )}
 
           {activeTab === 'telegram' && (
-            <div className="max-w-[900px] mx-auto py-8 text-center">
-              <div className="p-8 rounded-2xl bg-slate-900/60 border border-cyan-500/20 backdrop-blur-xl space-y-4">
-                <Send className="w-12 h-12 text-cyan-400 mx-auto" />
-                <h2 className="text-xl font-bold text-white font-display">
-                  Telegram Channel Preview
-                </h2>
-                <p className="text-sm text-slate-300 max-w-lg mx-auto leading-relaxed">
-                  Simulated preview — mirrors the Telegram bot&apos;s message formats. Coming in Phase 5 with interactive DM deepfake checks, enrollment consent flow, approver notifications, and hash-chain audit reports.
-                </p>
-              </div>
-            </div>
+            <TelegramPreview
+              activeRequest={activeRequest}
+              auditEvents={auditEvents}
+            />
           )}
         </main>
       </div>
