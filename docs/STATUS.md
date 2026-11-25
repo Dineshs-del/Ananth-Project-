@@ -1,5 +1,9 @@
 # Status
 
+## Python requirements
+- Added `backend/requirements.txt` with all backend, bot and test dependencies, including `pytest-asyncio`; `requirements-bot.txt` now delegates to it with `-r backend/requirements.txt`.
+- Verified both requirements files install/resolve cleanly.
+
 ## Dependency cleanup
 - Pinned `vite` 8.3.8 and `esbuild` 0.28.2 so plain `npm install`/`npm ci` resolve without ERESOLVE; regenerated `package-lock.json`.
 - Removed unused `@google/genai`, `express`, `@types/express`, `dotenv`, `tsx` and the stale `server.js` reference from `clean`; dropped template `GEMINI_API_KEY`/`APP_URL` from `.env.example`.
