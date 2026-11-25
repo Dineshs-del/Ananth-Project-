@@ -6,6 +6,10 @@ import type {
   BreakGlassRequest,
   Employee,
   FixtureScenario,
+  LiveChunkResult,
+  LiveChunkUploadResponse,
+  LiveGuardSession,
+  LiveGuardState,
   MockExecutionReceipt,
   VoiceCheckResult,
 } from '../types';
@@ -194,6 +198,7 @@ export class VoiceGateEngine {
   private auditEvents: AuditEvent[];
   private nextAuditId: number;
   private initialized: boolean;
+  private liveSessions: Map<string, LiveGuardSession>;
 
   constructor(options?: { mode?: BackendMode; apiBaseUrl?: string; scenario?: FixtureScenario }) {
     this.mode = options?.mode ?? 'local';
@@ -205,6 +210,7 @@ export class VoiceGateEngine {
     this.auditEvents = [];
     this.nextAuditId = 1;
     this.initialized = false;
+    this.liveSessions = new Map();
   }
 
   setMode(mode: BackendMode, apiBaseUrl?: string): void {
@@ -870,6 +876,246 @@ export class VoiceGateEngine {
       ...this.auditEvents[0],
       actor_id: 'emp_tampered_actor',
     };
+  }
+
+  // --- Live Call Guard (Near-Live Chunk Monitoring) ---
+
+  private buildLiveNextStep(state: LiveGuardState, hint: string): string {
+    const suffix = hint && (state === 'BORDERLINE' || state === 'FAIL')
+      ? ` (Known directory hint: ${hint})`
+      : '';
+    if (state === 'PASS') {
+      return 'Two consecutive chunks passed, but scores are evidence, not proof. Proceed with second-device number-matching approval only if the request makes sense.';
+    }
+    if (state === 'BORDERLINE') {
+      return `Pause approval and call the claimed employee back on a number you already know before taking action. This is evidence, not proof.${suffix}`;
+    }
+    if (state === 'FAIL') {
+      return `Request is blocked and cannot be overridden by approval. Do not share codes; call the employee back on a number you already know. This is evidence, not proof.${suffix}`;
+    }
+    return 'Keep monitoring the call and wait for two consecutive PASS chunks before approving. This is evidence, not proof.';
+  }
+
+  async startLiveGuard(input: {
+    request_id: string;
+    employee_id: string;
+    consent_confirmed: boolean;
+    guard_actor_id?: string;
+  }): Promise<LiveGuardSession> {
+    if (this.mode === 'live') {
+      return this.liveFetch<LiveGuardSession>(
+        `/api/v1/live/${encodeURIComponent(input.request_id)}/start`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employee_id: input.employee_id,
+            consent_confirmed: input.consent_confirmed,
+            guard_actor_id: input.guard_actor_id,
+          }),
+        },
+      );
+    }
+
+    await this.ensureSeeded();
+    if (!input.consent_confirmed) {
+      throw new Error('Explicit participant consent is required before starting Live Call Guard.');
+    }
+    const req = this.requests.find((r) => r.request_id === input.request_id);
+    if (!req) throw new Error('Request not found.');
+    const emp = this.employees.find((e) => e.employee_id === input.employee_id);
+    if (!emp) throw new Error('Claimed employee not found.');
+
+    const existing = this.liveSessions.get(input.request_id);
+    if (existing?.active) {
+      throw new Error(`A Live Call Guard session is already active for request '${input.request_id}'.`);
+    }
+
+    const now = new Date().toISOString();
+    const session: LiveGuardSession = {
+      request_id: req.request_id,
+      claimed_employee_id: emp.employee_id,
+      claimed_employee_name: emp.display_name,
+      known_callback_hint: emp.known_callback_hint,
+      active: true,
+      state: 'MONITORING',
+      fail_latched: false,
+      pass_streak: 0,
+      chunks_processed: 0,
+      max_chunks: 12,
+      last_reason:
+        'Live Call Guard started with participant consent. Waiting for first 7-second audio chunk.',
+      next_step: this.buildLiveNextStep('MONITORING', emp.known_callback_hint),
+      request_status: req.status,
+      ai_mode: 'fixture',
+      telegram_notified: false,
+      started_at: now,
+      updated_at: now,
+      ended_at: null,
+      ended_reason: null,
+      chunks: [],
+    };
+    this.liveSessions.set(req.request_id, session);
+    await this.appendAudit('LIVE_GUARD_SESSION_STARTED', input.guard_actor_id || 'approver:live_guard', req.request_id, {
+      consent_confirmed: true,
+      claimed_employee_id: emp.employee_id,
+      max_chunks: 12,
+    });
+    return { ...session, chunks: [...session.chunks] };
+  }
+
+  async uploadLiveChunk(input: {
+    request_id: string;
+    employee_id: string;
+    blob: Blob;
+    filename: string;
+    fixture_scenario?: FixtureScenario | '';
+  }): Promise<LiveChunkUploadResponse> {
+    if (this.mode === 'live') {
+      const form = new FormData();
+      form.append('file', input.blob, input.filename);
+      form.append('employee_id', input.employee_id);
+      const qs = input.fixture_scenario
+        ? `?fixture_scenario=${encodeURIComponent(input.fixture_scenario)}`
+        : '';
+      return this.liveFetch<LiveChunkUploadResponse>(
+        `/api/v1/live/${encodeURIComponent(input.request_id)}/chunk${qs}`,
+        { method: 'POST', body: form },
+      );
+    }
+
+    await this.ensureSeeded();
+    const session = this.liveSessions.get(input.request_id);
+    if (!session) throw new Error('No Live Call Guard session found for this request.');
+    if (!session.active) {
+      return {
+        ignored: true,
+        message: 'Session has already ended; chunk ignored.',
+        chunk: null,
+        session: { ...session, chunks: [...session.chunks] },
+      };
+    }
+
+    const chosenScenario: FixtureScenario = input.fixture_scenario || this.scenario;
+    const vr = buildFixtureVoiceResult(chosenScenario, 7.0);
+    const now = new Date().toISOString();
+    const prevState = session.state;
+    const chunkIdx = session.chunks_processed + 1;
+
+    let nextState: LiveGuardState = session.state;
+    if (session.fail_latched || vr.risk === 'FAIL') {
+      nextState = 'FAIL';
+      session.fail_latched = true;
+      session.pass_streak = 0;
+    } else if (vr.risk === 'PASS') {
+      session.pass_streak += 1;
+      if (session.pass_streak >= 2) {
+        nextState = 'PASS';
+      }
+    } else {
+      session.pass_streak = 0;
+      nextState = 'BORDERLINE';
+    }
+
+    const chunkRec: LiveChunkResult = {
+      chunk_index: chunkIdx,
+      received_at: now,
+      risk: vr.risk,
+      reason: vr.reason,
+      error: chosenScenario === 'error',
+    };
+    session.chunks.push(chunkRec);
+    session.chunks_processed = chunkIdx;
+    session.state = nextState;
+    session.last_reason = vr.reason;
+    session.next_step = this.buildLiveNextStep(nextState, session.known_callback_hint);
+    session.updated_at = now;
+
+    await this.appendAudit('LIVE_GUARD_CHUNK_RESULT', 'approver:live_guard', session.request_id, {
+      chunk_index: chunkIdx,
+      risk: vr.risk,
+      reason: vr.reason,
+    });
+
+    if (nextState !== prevState) {
+      await this.appendAudit('LIVE_GUARD_STATE_CHANGED', 'approver:live_guard', session.request_id, {
+        previous_state: prevState,
+        new_state: nextState,
+        fail_latched: session.fail_latched,
+      });
+    }
+
+    if (nextState === 'FAIL' && prevState !== 'FAIL') {
+      const req = this.requests.find((r) => r.request_id === session.request_id);
+      if (req && req.status !== 'EXECUTED') {
+        req.status = 'BLOCKED';
+        req.voice_result = vr;
+        for (const apr of this.approvals) {
+          if (apr.request_id === req.request_id && (apr.status === 'PENDING' || apr.status === 'APPROVED')) {
+            apr.status = 'EXPIRED';
+          }
+        }
+        session.request_status = 'BLOCKED';
+      }
+      await this.appendAudit('LIVE_GUARD_FAIL_ALERT_SENT', 'approver:live_guard', session.request_id, {
+        telegram_delivered: false,
+        request_blocked: session.request_status === 'BLOCKED',
+      });
+    }
+
+    if (chunkIdx >= session.max_chunks) {
+      session.active = false;
+      session.ended_at = now;
+      session.ended_reason = `Reached maximum cap of ${session.max_chunks} chunks; monitoring stopped.`;
+      await this.appendAudit('LIVE_GUARD_SESSION_ENDED', 'approver:live_guard', session.request_id, {
+        chunks_processed: chunkIdx,
+        final_state: session.state,
+        ended_reason: session.ended_reason,
+      });
+    }
+
+    this.refreshApprovalExpiries();
+    return {
+      ignored: false,
+      message: session.ended_reason || `Chunk #${chunkIdx} processed (${vr.risk}).`,
+      chunk: chunkRec,
+      session: { ...session, chunks: [...session.chunks] },
+    };
+  }
+
+  async getLiveGuardStatus(requestId: string): Promise<LiveGuardSession> {
+    if (this.mode === 'live') {
+      return this.liveFetch<LiveGuardSession>(
+        `/api/v1/live/${encodeURIComponent(requestId)}/status`,
+      );
+    }
+    const session = this.liveSessions.get(requestId);
+    if (!session) throw new Error('No Live Call Guard session found for this request.');
+    return { ...session, chunks: [...session.chunks] };
+  }
+
+  async stopLiveGuard(requestId: string): Promise<LiveGuardSession> {
+    if (this.mode === 'live') {
+      return this.liveFetch<LiveGuardSession>(
+        `/api/v1/live/${encodeURIComponent(requestId)}/stop`,
+        { method: 'POST' },
+      );
+    }
+    const session = this.liveSessions.get(requestId);
+    if (!session) throw new Error('No Live Call Guard session found for this request.');
+    if (session.active) {
+      const now = new Date().toISOString();
+      session.active = false;
+      session.ended_at = now;
+      session.updated_at = now;
+      session.ended_reason = 'Stopped manually by guard.';
+      await this.appendAudit('LIVE_GUARD_SESSION_ENDED', 'approver:live_guard', requestId, {
+        chunks_processed: session.chunks_processed,
+        final_state: session.state,
+        ended_reason: session.ended_reason,
+      });
+    }
+    return { ...session, chunks: [...session.chunks] };
   }
 }
 

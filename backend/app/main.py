@@ -44,9 +44,13 @@ from .core.schemas import (
     EmployeeCreate,
     EmployeeOut,
     ExecuteActionRequest,
+    LiveChunkUploadOut,
+    LiveSessionOut,
+    LiveSessionStartRequest,
     MockExecutionOut,
 )
 from .core.storage import UploadValidationError, save_audio_upload
+from .live.service import LiveGuardAuditError, get_live_guard_service
 
 
 def _verify_reviewer_token(authorization: str | None) -> None:
@@ -358,6 +362,84 @@ def create_app() -> FastAPI:
                 )
             except ApprovalError as exc:
                 _raise_http(exc)
+
+    # --- Live Call Guard (Near-Live Chunk Monitoring) ---
+
+    @application.post(
+        "/api/v1/live/{request_id}/start",
+        response_model=LiveSessionOut,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def api_live_start(
+        request_id: str,
+        payload: LiveSessionStartRequest,
+    ) -> dict:
+        service = get_live_guard_service()
+        try:
+            return service.start_session(
+                request_id=request_id,
+                employee_id=payload.employee_id,
+                consent_confirmed=payload.consent_confirmed,
+                guard_actor_id=payload.guard_actor_id,
+            )
+        except ApprovalError as exc:
+            _raise_http(exc)
+        except LiveGuardAuditError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Audit logging failed; Live Call Guard did not start (fail closed).",
+            ) from exc
+
+    @application.post(
+        "/api/v1/live/{request_id}/chunk",
+        response_model=LiveChunkUploadOut,
+    )
+    def api_live_chunk(
+        request_id: str,
+        file: UploadFile = File(...),
+        employee_id: str = Form(...),
+        fixture_scenario: str | None = Query(default=None),
+    ) -> dict:
+        service = get_live_guard_service()
+        try:
+            return service.process_chunk(
+                request_id=request_id,
+                employee_id=employee_id,
+                filename=file.filename,
+                content_type=file.content_type,
+                stream=file.file,
+                fixture_scenario=fixture_scenario,
+            )
+        except UploadValidationError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except ApprovalError as exc:
+            _raise_http(exc)
+        except LiveGuardAuditError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Audit logging failed; chunk could not be committed (fail closed).",
+            ) from exc
+
+    @application.get("/api/v1/live/{request_id}/status", response_model=LiveSessionOut)
+    def api_live_status(request_id: str) -> dict:
+        service = get_live_guard_service()
+        try:
+            return service.get_session(request_id)
+        except ApprovalError as exc:
+            _raise_http(exc)
+
+    @application.post("/api/v1/live/{request_id}/stop", response_model=LiveSessionOut)
+    def api_live_stop(request_id: str) -> dict:
+        service = get_live_guard_service()
+        try:
+            return service.stop_session(request_id=request_id)
+        except ApprovalError as exc:
+            _raise_http(exc)
+        except LiveGuardAuditError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Audit logging failed while stopping Live Call Guard.",
+            ) from exc
 
     # --- Audit Trail ---
 

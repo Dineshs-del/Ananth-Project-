@@ -173,3 +173,57 @@ class AuditChainVerificationOut(BaseModel):
     valid: bool
     checked_events: int
     broken_at_id: int | None
+
+
+LiveGuardState = Literal["MONITORING", "PASS", "BORDERLINE", "FAIL"]
+
+
+class LiveSessionStartRequest(BaseModel):
+    employee_id: str = Field(..., min_length=1, max_length=64)
+    consent_confirmed: bool = False
+    guard_actor_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("employee_id")
+    @classmethod
+    def check_live_employee_id(cls, value: str) -> str:
+        if not EMPLOYEE_ID_PATTERN.match(value):
+            raise ValueError("employee_id must match ^[A-Za-z0-9_.:-]{1,64}$")
+        return value
+
+
+class LiveChunkResultOut(BaseModel):
+    chunk_index: int
+    received_at: str
+    risk: RiskLevel
+    reason: str
+    error: bool = False
+
+
+class LiveSessionOut(BaseModel):
+    request_id: str
+    claimed_employee_id: str
+    claimed_employee_name: str | None = None
+    known_callback_hint: str = ""
+    active: bool
+    state: LiveGuardState
+    fail_latched: bool
+    pass_streak: int
+    chunks_processed: int
+    max_chunks: int
+    last_reason: str
+    next_step: str
+    request_status: str
+    ai_mode: str
+    telegram_notified: bool = False
+    started_at: str
+    updated_at: str
+    ended_at: str | None = None
+    ended_reason: str | None = None
+    chunks: list[LiveChunkResultOut]
+
+
+class LiveChunkUploadOut(BaseModel):
+    ignored: bool = False
+    message: str
+    chunk: LiveChunkResultOut | None = None
+    session: LiveSessionOut

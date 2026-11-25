@@ -13,6 +13,7 @@ import {
   Plus,
   Menu,
   X,
+  Radio,
 } from 'lucide-react';
 import type {
   ApprovalRecord,
@@ -30,11 +31,13 @@ import { RequesterConsole } from './components/RequesterConsole';
 import { ApproverPhone } from './components/ApproverPhone';
 import { AuditDashboard } from './components/AuditDashboard';
 import { EnrollmentPanel } from './components/EnrollmentPanel';
+import { LiveGuardPanel } from './components/LiveGuardPanel';
 
-type ActiveTab = 'requester' | 'approver' | 'audit' | 'enrollment';
+type ActiveTab = 'requester' | 'live_guard' | 'approver' | 'audit' | 'enrollment';
 
 const NAV_ITEMS: { id: ActiveTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'requester', label: 'Requester Gate', icon: Shield },
+  { id: 'live_guard', label: 'Live Guard', icon: Radio },
   { id: 'approver', label: 'Approver Phone', icon: Smartphone },
   { id: 'audit', label: 'Operations & Audit', icon: ScrollText },
   { id: 'enrollment', label: 'Voice Enrollment', icon: Users },
@@ -526,6 +529,20 @@ export default function App() {
                 </div>
               )}
             </div>
+          )}
+
+          {activeTab === 'live_guard' && (
+            <LiveGuardPanel
+              employees={employees}
+              requests={requests}
+              backendMode={backendMode}
+              onSyncAll={syncAll}
+              onCreateRequestRedirect={() => {
+                setActiveRequestId(null);
+                setErrorMessage(null);
+                setActiveTab('requester');
+              }}
+            />
           )}
 
           {activeTab === 'approver' && (

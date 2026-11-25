@@ -47,6 +47,7 @@ from .audio import (
 )
 from .audit_bridge import AuditLoggingError, log_voice_check_result
 from .enrollment_flow import TelegramEnrollmentFlow
+from .internal_bridge import BotInternalBridge
 from .live_call_alerts import LiveCallAlertManager, register_live_call_manager
 
 load_project_dotenv()
@@ -316,13 +317,16 @@ def build_application(
     live_call_alerts = live_alerts or LiveCallAlertManager(
         approver_chats_ref=approver_console.approver_chats,
     )
+    internal_bridge = BotInternalBridge()
     register_live_call_manager(live_call_alerts)
 
     async def _post_init(application: Application) -> None:
         await approver_console.start(application)
         await live_call_alerts.start(application)
+        await internal_bridge.start()
 
     async def _post_shutdown(application: Application) -> None:
+        await internal_bridge.stop()
         await live_call_alerts.stop(application)
         await approver_console.stop(application)
 

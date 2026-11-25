@@ -126,3 +126,43 @@ export interface AuditChainVerification {
   checked_events: number;
   broken_at_id: number | null;
 }
+
+export type LiveGuardState = 'MONITORING' | 'PASS' | 'BORDERLINE' | 'FAIL';
+
+export interface LiveChunkResult {
+  chunk_index: number;
+  received_at: string;
+  risk: RiskLevel;
+  reason: string;
+  error: boolean;
+}
+
+export interface LiveGuardSession {
+  request_id: string;
+  claimed_employee_id: string;
+  claimed_employee_name: string | null;
+  known_callback_hint: string;
+  active: boolean;
+  state: LiveGuardState;
+  fail_latched: boolean;
+  pass_streak: number;
+  chunks_processed: number;
+  max_chunks: number;
+  last_reason: string;
+  next_step: string;
+  request_status: string;
+  ai_mode: string;
+  telegram_notified: boolean;
+  started_at: string;
+  updated_at: string;
+  ended_at: string | null;
+  ended_reason: string | null;
+  chunks: LiveChunkResult[];
+}
+
+export interface LiveChunkUploadResponse {
+  ignored: boolean;
+  message: string;
+  chunk: LiveChunkResult | null;
+  session: LiveGuardSession;
+}

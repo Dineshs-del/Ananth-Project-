@@ -32,6 +32,11 @@ class CoreConfig:
     approval_ttl_seconds: int
     max_upload_bytes: int
     reviewer_api_token: str | None
+    live_max_chunks: int = 12
+    live_max_chunk_bytes: int = 4 * 1024 * 1024
+    live_fixture_scenario: str | None = None
+    bot_internal_port: int = 8765
+    bot_internal_token: str | None = None
 
 
 def load_core_config() -> CoreConfig:
@@ -71,6 +76,27 @@ def load_core_config() -> CoreConfig:
     except ValueError:
         max_upload_bytes = 15 * 1024 * 1024
 
+    live_max_chunks_raw = os.getenv("LIVE_MAX_CHUNKS", "12").strip()
+    try:
+        live_max_chunks = max(1, min(int(live_max_chunks_raw), 120))
+    except ValueError:
+        live_max_chunks = 12
+
+    live_chunk_mb_raw = os.getenv("LIVE_MAX_CHUNK_MB", "4").strip()
+    try:
+        live_max_chunk_bytes = min(max_upload_bytes, max(1, min(int(live_chunk_mb_raw), 15)) * 1024 * 1024)
+    except ValueError:
+        live_max_chunk_bytes = min(max_upload_bytes, 4 * 1024 * 1024)
+
+    live_fixture_scenario = os.getenv("LIVE_FIXTURE_SCENARIO", "").strip() or None
+
+    bot_port_raw = os.getenv("BOT_INTERNAL_PORT", "8765").strip()
+    try:
+        bot_internal_port = max(1024, min(int(bot_port_raw), 65535))
+    except ValueError:
+        bot_internal_port = 8765
+
+    bot_internal_token = os.getenv("BOT_INTERNAL_TOKEN", "").strip() or None
     reviewer_token = os.getenv("REVIEWER_API_TOKEN", "").strip() or None
 
     return CoreConfig(
@@ -81,4 +107,9 @@ def load_core_config() -> CoreConfig:
         approval_ttl_seconds=approval_ttl,
         max_upload_bytes=max_upload_bytes,
         reviewer_api_token=reviewer_token,
+        live_max_chunks=live_max_chunks,
+        live_max_chunk_bytes=live_max_chunk_bytes,
+        live_fixture_scenario=live_fixture_scenario,
+        bot_internal_port=bot_internal_port,
+        bot_internal_token=bot_internal_token,
     )

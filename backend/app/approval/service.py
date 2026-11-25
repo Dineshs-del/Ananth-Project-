@@ -955,6 +955,56 @@ def block_request(
     return get_request(conn, request_id)
 
 
+def block_request_on_voice_fail(
+    conn: sqlite3.Connection,
+    *,
+    request_id: str,
+    reason: str,
+    actor_id: str = "system:live_guard",
+) -> dict[str, Any]:
+    """Hard-block a non-executed request when live-call monitoring detects a voice FAIL.
+
+    Expires any pending or unconsumed approvals and sets voice_risk='FAIL' so no
+    approval can ever override the failure.
+    """
+    req = get_request(conn, request_id)
+    if req["status"] == "EXECUTED":
+        raise ConflictError("Cannot block a break-glass request that has already been executed.")
+
+    now = utc_now_iso()
+    clean_reason = reason.strip() or "Blocked automatically after live-call voice FAIL."
+
+    conn.execute(
+        """
+        UPDATE approval_records
+        SET status = 'EXPIRED'
+        WHERE request_id = ? AND status IN ('PENDING', 'APPROVED')
+        """,
+        (request_id,),
+    )
+    conn.execute(
+        """
+        UPDATE break_glass_requests
+        SET status = 'BLOCKED',
+            voice_risk = 'FAIL',
+            voice_reason = ?,
+            decision_notes = COALESCE(NULLIF(decision_notes, ''), ?),
+            updated_at = ?
+        WHERE request_id = ?
+        """,
+        (clean_reason[:500], clean_reason[:500], now, request_id),
+    )
+
+    record_event(
+        conn,
+        event_type="APPROVAL_BLOCKED_VOICE_FAIL",
+        actor_id=actor_id,
+        request_id=request_id,
+        details={"reason": clean_reason[:200], "outcome": "blocked", "source": "live_guard"},
+    )
+    return get_request(conn, request_id)
+
+
 def execute_request(
     conn: sqlite3.Connection,
     *,

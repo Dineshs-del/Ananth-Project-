@@ -431,6 +431,20 @@ def describe_audit_event(event: dict[str, Any]) -> str:
     elif etype == EVENT_LIVE_CALL_STATE:
         state_val = details.get("state", "unknown")
         summary = f"Live-call alert updated to {state_val}{req_suffix}"
+    elif etype == "LIVE_GUARD_SESSION_STARTED":
+        summary = f"Live Call Guard started with consent by {actor}{req_suffix}"
+    elif etype == "LIVE_GUARD_CHUNK_RESULT":
+        risk = details.get("risk", "unknown")
+        idx = details.get("chunk_index", "?")
+        summary = f"Live Call Guard chunk #{idx} checked (risk: {risk}){req_suffix}"
+    elif etype == "LIVE_GUARD_STATE_CHANGED":
+        summary = (
+            f"Live Call Guard state changed to {details.get('new_state', 'unknown')}{req_suffix}"
+        )
+    elif etype == "LIVE_GUARD_FAIL_ALERT_SENT":
+        summary = f"Live Call Guard FAIL alert dispatched and request blocked{req_suffix}"
+    elif etype == "LIVE_GUARD_SESSION_ENDED":
+        summary = f"Live Call Guard session ended ({details.get('final_state', 'unknown')}){req_suffix}"
     elif etype == EVENT_EXPIRY:
         summary = f"Approval window expired{req_suffix}"
     elif etype == "ACTION_EXECUTED":
