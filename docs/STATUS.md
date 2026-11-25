@@ -1,5 +1,10 @@
 # Status
 
+## Dependency cleanup
+- Pinned `vite` 8.3.8 and `esbuild` 0.28.2 so plain `npm install`/`npm ci` resolve without ERESOLVE; regenerated `package-lock.json`.
+- Removed unused `@google/genai`, `express`, `@types/express`, `dotenv`, `tsx` and the stale `server.js` reference from `clean`; dropped template `GEMINI_API_KEY`/`APP_URL` from `.env.example`.
+- Verified `npm install`, `npm ci`, `npm run lint` and `npm run build` all succeed.
+
 ## Fixture policy consistency
 - Branch: `fix/eidos-fixtures`
 - Fixture voice checks now recompute `risk`/`reason` with `policy.classify()`; stored fixture risks are covered by a consistency test.
