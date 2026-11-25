@@ -24,6 +24,19 @@ from backend.app.core.database import get_db
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 LABEL_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+SECRET_KEYS = frozenset({"authorization", "api-key", "api_key", "apikey", "x-api-key", "headers"})
+
+
+def _sanitize_raw(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _sanitize_raw(item)
+            for key, item in value.items()
+            if not isinstance(key, str) or key.lower() not in SECRET_KEYS
+        }
+    if isinstance(value, list):
+        return [_sanitize_raw(item) for item in value]
+    return value
 
 
 def _is_enrolled_locally(speaker_id: str) -> bool:
@@ -114,15 +127,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
+    saved_response = _sanitize_raw(raw_response)
     FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
     out_path = FIXTURES_DIR / f"raw_{args.label}.json"
     out_path.write_text(
-        json.dumps(raw_response, indent=2, sort_keys=False) + "\n",
+        json.dumps(saved_response, indent=2, sort_keys=False) + "\n",
         encoding="utf-8",
     )
 
-    aletheia = _parse_aletheia_from_verify(raw_response)
-    eidos = _parse_eidos_response(raw_response)
+    aletheia = _parse_aletheia_from_verify(saved_response)
+    eidos = _parse_eidos_response(saved_response)
     risk, _reason = classify(aletheia, eidos)
     print(
         json.dumps(

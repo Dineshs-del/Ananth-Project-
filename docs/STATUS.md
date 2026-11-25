@@ -1,5 +1,10 @@
 # Status
 
+## Live smoke hardening
+- `backend/scripts/live_smoke.py` now strips header/API-key-like fields recursively from the raw verify JSON before saving `backend/fixtures/raw_<label>.json`; stdout still prints only parsed `aletheia`/`eidos`/`risk`.
+- Added mocked `app/ai/test_live_smoke.py` covering exactly one combined verify call, sanitized saved JSON, no key in output, and rejection of `AI_MODE=fixture`.
+- Suite after this step: 83 passed, 1 failed (known stale `/health` assertion).
+
 ## Pytest collection
 - Added `backend/pytest.ini` (`testpaths = app`, `pythonpath = ..`, registered `asyncio` marker) and `backend/conftest.py` aliasing `app` to `backend.app`, with package `__init__.py` files, so `cd backend && python -m pytest` collects every suite with consistent imports.
 - Verified from both `backend/` and the repo root: 81 passed, 1 failed (the known stale `/health` assertion), no collection errors.
