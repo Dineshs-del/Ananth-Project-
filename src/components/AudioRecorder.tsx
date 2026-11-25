@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, Square, Upload, Play, RotateCcw, FileAudio, CheckCircle2 } from 'lucide-react';
+import { Mic, Square, Upload, Play, RotateCcw, FileAudio, CheckCircle2, Loader2 } from 'lucide-react';
 import { PressableButton } from './ui/PressableButton';
+import { convertBlobTo16kWav } from '../lib/wav';
 
 interface AudioRecorderProps {
   onAudioReady: (file: File, durationSeconds: number) => void;
@@ -58,6 +59,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [recordedDuration, setRecordedDuration] = useState(0);
   const [micError, setMicError] = useState<string | null>(null);
+  const [isConverting, setIsConverting] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -181,17 +183,30 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         if (ev.data.size > 0) chunksRef.current.push(ev.data);
       };
 
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         const finalDuration = Math.max(0.5, (Date.now() - startTimeRef.current) / 1000);
-        const type = recorder.mimeType || 'audio/webm';
-        const ext = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm';
-        const blob = new Blob(chunksRef.current, { type });
-        const file = new File([blob], `challenge_recording.${ext}`, { type });
-        setRecordedFile(file);
-        setRecordedDuration(finalDuration);
-        setRecordedUrl(URL.createObjectURL(blob));
+        const rawBlob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
         cleanupMedia();
         setIsRecording(false);
+        setIsConverting(true);
+        setMicError(null);
+
+        try {
+          // Downmix to mono, resample to 16 kHz, encode as standard 16-bit PCM RIFF/WAVE
+          const wavFile = await convertBlobTo16kWav(rawBlob, 'challenge_recording.wav');
+          setRecordedFile(wavFile);
+          setRecordedDuration(finalDuration);
+          setRecordedUrl(URL.createObjectURL(wavFile));
+        } catch (convErr) {
+          setRecordedFile(null);
+          setRecordedDuration(0);
+          setRecordedUrl(null);
+          setMicError(
+            `WAV audio conversion failed: ${convErr instanceof Error ? convErr.message : 'Unknown error'}. Please retry or upload a pre-recorded WAV file.`,
+          );
+        } finally {
+          setIsConverting(false);
+        }
       };
 
       mediaRecorderRef.current = recorder;
@@ -218,23 +233,54 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     }
   };
 
-  const handleFileUpload = (ev: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (ev: React.ChangeEvent<HTMLInputElement>) => {
     const file = ev.target.files?.[0];
     if (!file) return;
     setMicError(null);
     if (recordedUrl) URL.revokeObjectURL(recordedUrl);
-    const url = URL.createObjectURL(file);
-    setRecordedFile(file);
-    setRecordedUrl(url);
-    setRecordedDuration(5.5);
-
-    const probe = new Audio(url);
-    probe.onloadedmetadata = () => {
-      if (Number.isFinite(probe.duration) && probe.duration > 0) {
-        setRecordedDuration(probe.duration);
-      }
-    };
     ev.target.value = '';
+
+    // If already audio/wav or .wav extension, accept directly
+    if (file.type === 'audio/wav' || file.name.toLowerCase().endsWith('.wav')) {
+      const url = URL.createObjectURL(file);
+      setRecordedFile(file);
+      setRecordedUrl(url);
+      setRecordedDuration(5.5);
+
+      const probe = new Audio(url);
+      probe.onloadedmetadata = () => {
+        if (Number.isFinite(probe.duration) && probe.duration > 0) {
+          setRecordedDuration(probe.duration);
+        }
+      };
+      return;
+    }
+
+    // Convert non-WAV upload to 16 kHz mono WAV
+    setIsConverting(true);
+    try {
+      const wavFile = await convertBlobTo16kWav(file, file.name);
+      const url = URL.createObjectURL(wavFile);
+      setRecordedFile(wavFile);
+      setRecordedUrl(url);
+      setRecordedDuration(5.5);
+
+      const probe = new Audio(url);
+      probe.onloadedmetadata = () => {
+        if (Number.isFinite(probe.duration) && probe.duration > 0) {
+          setRecordedDuration(probe.duration);
+        }
+      };
+    } catch (convErr) {
+      setRecordedFile(null);
+      setRecordedDuration(0);
+      setRecordedUrl(null);
+      setMicError(
+        `Failed to convert uploaded audio to 16 kHz WAV: ${convErr instanceof Error ? convErr.message : 'Unknown error'}`,
+      );
+    } finally {
+      setIsConverting(false);
+    }
   };
 
   const useSampleClip = () => {
@@ -275,6 +321,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               <span className="flex items-center gap-2 text-rose-400 font-mono font-semibold animate-pulse">
                 <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_10px_#f43f5e]" />
                 RECORDING MICROPHONE
+              </span>
+            ) : isConverting ? (
+              <span className="flex items-center gap-2 text-cyan-300 font-mono font-medium animate-pulse">
+                <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                CONVERTING TO 16kHz WAV...
               </span>
             ) : recordedFile ? (
               <span className="flex items-center gap-2 text-emerald-400 font-mono font-medium truncate max-w-[200px]">
