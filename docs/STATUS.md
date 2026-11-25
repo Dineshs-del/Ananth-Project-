@@ -12,6 +12,10 @@
 - Saves the raw verify JSON to `backend/fixtures/raw_<label>.json`, then prints parsed `aletheia`/`eidos`/`risk`; API keys are never printed.
 - Not executed as part of this change.
 
+## AGENTS.md refresh
+- Updated `AGENTS.md` against the current branch: corrected the test baseline (full root run stops on 2 collection errors; ignoring those gives 1 failed, 74 passed), and recorded the `live_smoke` command, fixture `risk`/`reason` recompute, `.webm` rejection, and bot BORDERLINE fixture special case.
+- No workflow, fixture schema, or architecture changes.
+
 ## Live-mode edge-case hardening
 - Removed `.webm` from `DetectifClient` supported formats; browser-recorder WebM now fails locally with `unsupported_format`.
 - Added stdlib `wave` duration validation for WAV uploads outside 4-120s; non-WAV duration still relies on the API because no decoder/`ffprobe` dependency is assumed.
