@@ -112,15 +112,45 @@ export const TelegramPreview: React.FC<TelegramPreviewProps> = ({
         });
         break;
 
-      case '/live':
-        simulateBotReply('/live', {
-          isAlert: true,
-          text: '🚨 *LIVE CALL GUARD ALERT*\n\n• *Session:* req_live_901\n• *Status:* FAIL (Latched)\n• *Reason:* High acoustic synthetic probability detected (>0.85)\n\n*Immediate Actions:*',
-          buttons: [
-            { text: '🚫 Block Request', action: 'block', variant: 'danger' },
-            { text: '📞 Call back on known number', action: 'callback' },
-          ],
+      case '/start':
+        simulateBotReply('/start', {
+          text: '🤖 *Break-Glass Voice Gate Bot*\n\nSecure emergency approval bridge.\nCommands: `/check`, `/link`, `/enroll`, `/done`, `/approver`, `/requester`, `/report`, `/status`.\n\nReply to any voice note with `/check` to inspect for synthetic speech via Aletheia neural detection.',
         });
+        break;
+
+      case '/link':
+        simulateBotReply('/link emp_rahul', {
+          text: '🔗 *Account Linked*\n\nTelegram user linked to employee `emp_rahul` (Rahul Sharma).\nYou can now run `/enroll` or receive emergency approval requests.',
+        });
+        break;
+
+      case '/done':
+        simulateBotReply('/done', {
+          text: '✅ *Voice Enrollment Finalized*\n\nEnrolled samples saved. Eidos speaker verification template is ready for break-glass operations.',
+        });
+        break;
+
+      case '/requester':
+        simulateBotReply('/requester', {
+          text: '📋 *Requester Quick Status*\n\n• *Active Request:* `req_9812_k8s`\n• *Action:* Drain traffic & rotate TLS keys\n• *Gate State:* Awaiting voice verification',
+        });
+        break;
+
+      case 'alert_push':
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: String(Date.now()),
+            sender: 'bot',
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isAlert: true,
+            text: '🚨 *AUTOMATIC LIVE-CALL ALERT (PUSHED BY THE BOT)*\n\n• *Session:* req_live_901\n• *Status:* FAIL (Latched)\n• *Reason:* High acoustic synthetic probability detected (>0.85)\n\n*Immediate Actions:*',
+            buttons: [
+              { text: '🚫 Block Request', action: 'block', variant: 'danger' },
+              { text: '📞 Call back on known number', action: 'callback' },
+            ],
+          },
+        ]);
         break;
 
       case '/report':
@@ -299,72 +329,106 @@ export const TelegramPreview: React.FC<TelegramPreviewProps> = ({
               Click any command chip below to trigger the simulated bot response and experience the production Telegram workflow:
             </p>
 
-            <div className="space-y-2.5">
-              <button
-                type="button"
-                onClick={() => handleCommand('/approver')}
-                className="w-full text-left p-3 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer space-y-0.5"
-              >
-                <div className="text-xs font-mono font-bold text-cyan-300">/approver</div>
-                <div className="text-[11px] text-slate-400">
-                  Simulate second-device emergency request with number-matching buttons.
-                </div>
-              </button>
+            <div className="space-y-2">
+              <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400 font-semibold mb-1">
+                Real Bot Commands
+              </div>
 
-              <button
-                type="button"
-                onClick={() => handleCommand('/check')}
-                className="w-full text-left p-3 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer space-y-0.5"
-              >
-                <div className="text-xs font-mono font-bold text-cyan-300">/check (Voice Note DM)</div>
-                <div className="text-[11px] text-slate-400">
-                  Aletheia neural deepfake check on audio sample (4–120s, rate limit 5/10min).
-                </div>
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCommand('/start')}
+                  className="p-2.5 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer text-left"
+                >
+                  <div className="text-xs font-mono font-bold text-cyan-300">/start</div>
+                  <div className="text-[10px] text-slate-400">Welcome &amp; overview</div>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => handleCommand('/enroll')}
-                className="w-full text-left p-3 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer space-y-0.5"
-              >
-                <div className="text-xs font-mono font-bold text-cyan-300">/enroll</div>
-                <div className="text-[11px] text-slate-400">
-                  Interactive voice enrollment with explicit consent confirmation buttons.
-                </div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleCommand('/check')}
+                  className="p-2.5 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer text-left"
+                >
+                  <div className="text-xs font-mono font-bold text-cyan-300">/check</div>
+                  <div className="text-[10px] text-slate-400">Aletheia neural check</div>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => handleCommand('/live')}
-                className="w-full text-left p-3 rounded-xl bg-slate-950/70 border border-white/10 hover:border-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer space-y-0.5"
-              >
-                <div className="text-xs font-mono font-bold text-rose-400">Live-Call Alert (FAIL)</div>
-                <div className="text-[11px] text-slate-400">
-                  Live alert with Block and &ldquo;Call back on known number&rdquo; buttons.
-                </div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleCommand('/link')}
+                  className="p-2.5 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer text-left"
+                >
+                  <div className="text-xs font-mono font-bold text-cyan-300">/link</div>
+                  <div className="text-[10px] text-slate-400">Bind employee identity</div>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => handleCommand('/report')}
-                className="w-full text-left p-3 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer space-y-0.5"
-              >
-                <div className="text-xs font-mono font-bold text-cyan-300">/report</div>
-                <div className="text-[11px] text-slate-400">
-                  Plain-language hash-chain audit summary with recent block hashes.
-                </div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleCommand('/enroll')}
+                  className="p-2.5 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer text-left"
+                >
+                  <div className="text-xs font-mono font-bold text-cyan-300">/enroll</div>
+                  <div className="text-[10px] text-slate-400">Consent &amp; voice sample</div>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => handleCommand('/status')}
-                className="w-full text-left p-3 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer space-y-0.5"
-              >
-                <div className="text-xs font-mono font-bold text-cyan-300">/status</div>
-                <div className="text-[11px] text-slate-400">
-                  Query active user authorization and engine connectivity status.
-                </div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleCommand('/done')}
+                  className="p-2.5 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer text-left"
+                >
+                  <div className="text-xs font-mono font-bold text-cyan-300">/done</div>
+                  <div className="text-[10px] text-slate-400">Finalize enrollment</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleCommand('/approver')}
+                  className="p-2.5 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer text-left"
+                >
+                  <div className="text-xs font-mono font-bold text-cyan-300">/approver</div>
+                  <div className="text-[10px] text-slate-400">Number-match console</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleCommand('/requester')}
+                  className="p-2.5 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer text-left"
+                >
+                  <div className="text-xs font-mono font-bold text-cyan-300">/requester</div>
+                  <div className="text-[10px] text-slate-400">Active request status</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleCommand('/report')}
+                  className="p-2.5 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer text-left"
+                >
+                  <div className="text-xs font-mono font-bold text-cyan-300">/report</div>
+                  <div className="text-[10px] text-slate-400">Hash-chain audit summary</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleCommand('/status')}
+                  className="p-2.5 rounded-xl bg-slate-950/70 border border-white/10 hover:border-cyan-400 hover:bg-cyan-500/10 transition-all cursor-pointer text-left col-span-2"
+                >
+                  <div className="text-xs font-mono font-bold text-cyan-300">/status</div>
+                  <div className="text-[10px] text-slate-400">Query authorization &amp; rate limit window</div>
+                </button>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleCommand('alert_push')}
+                  className="w-full text-left p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 hover:border-rose-400 hover:bg-rose-500/15 transition-all cursor-pointer space-y-0.5"
+                >
+                  <div className="text-xs font-mono font-bold text-rose-400">Automatic live-call alert (pushed by the bot)</div>
+                  <div className="text-[11px] text-slate-400">
+                    Simulate alert pushed by bot on detected acoustic anomaly.
+                  </div>
+                </button>
+              </div>
             </div>
           </GlassCard>
 
