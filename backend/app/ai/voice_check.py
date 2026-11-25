@@ -31,6 +31,32 @@ def _fail_closed(
     }
 
 
+def _api_error_reason(exc: DetectifError) -> str:
+    message = exc.message or "Detectif API error."
+    code = (exc.code or "").lower()
+
+    if code in {"no_credits", "payment_required", "insufficient_credits", "insufficient_quota"} or exc.status == 402:
+        next_step = "check Detectif credits or plan limits before retrying"
+    elif code in {"rate_limited", "rate_limit_exceeded", "too_many_requests"} or exc.status == 429:
+        next_step = "wait for the rate limit to reset before retrying"
+    elif code in {"timeout", "network_error"}:
+        next_step = "retry when connectivity is restored or check Detectif service status"
+    elif code in {"unsupported_format", "audio_too_short", "audio_too_long", "empty_audio", "invalid_audio"}:
+        next_step = "provide a 4-120 second WAV, MP3, M4A, FLAC, or OGG recording"
+    elif code in {"speaker_not_enrolled", "speaker_not_found", "unknown_speaker"} or exc.status == 404:
+        next_step = "confirm the employee is enrolled, or call back on a number you already know"
+    elif code == "invalid_speaker_id":
+        next_step = "confirm the employee ID format or call back on a number you already know"
+    else:
+        next_step = "check service status and enrollment, ask the requester to re-record, or call back on a number you already know"
+
+    return (
+        f"Voice check failed closed: {message} "
+        "A score is evidence, not proof. "
+        f"Next step: {next_step}."
+    )
+
+
 def _load_fixture(scenario: str) -> dict[str, Any]:
     if not SCENARIO_PATTERN.match(scenario):
         return _fail_closed(
@@ -68,11 +94,12 @@ def _load_fixture(scenario: str) -> dict[str, Any]:
             "Next step: fix the fixture file or call back on a number you already know."
         )
 
+    risk, reason = classify(data["aletheia"], data["eidos"])
     return {
         "aletheia": data["aletheia"],
         "eidos": data["eidos"],
-        "risk": data["risk"],
-        "reason": data["reason"],
+        "risk": risk,
+        "reason": reason,
     }
 
 
@@ -167,13 +194,7 @@ def verify_voice(audio_path: str, employee_id: str) -> dict[str, Any]:
                 detect_deepfake=True,
             )
     except DetectifError as exc:
-        detail = f" ({exc.code})" if exc.code else ""
-        return _fail_closed(
-            f"Voice check service encountered an API error{detail} and failed closed. "
-            "A score is evidence, not proof. "
-            "Next step: check service credits/enrollment or ask the requester to re-record, "
-            "or call back on a number you already know."
-        )
+        return _fail_closed(_api_error_reason(exc))
     except OSError:
         return _fail_closed(
             "Voice check service encountered unreadable audio and failed closed. "

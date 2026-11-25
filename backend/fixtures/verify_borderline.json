@@ -7,5 +7,5 @@
   },
   "eidos": null,
   "risk": "BORDERLINE",
-  "reason": "Voice check did not confirm synthetic speech, but the score is close to the review cutoff. A score is evidence, not proof. Next step: ask the requester to re-record in a quiet spot, or call back on a number you already know."
+  "reason": "Speaker identity check was unavailable or returned incomplete data, so the check failed closed. A score is evidence, not proof. Next step: confirm the employee is enrolled, ask to re-record, or call back on a number you already know."
 }

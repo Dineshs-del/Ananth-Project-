@@ -1,0 +1,20 @@
+# Status
+
+## Fixture policy consistency
+- Branch: `fix/eidos-fixtures`
+- Fixture voice checks now recompute `risk`/`reason` with `policy.classify()`; stored fixture risks are covered by a consistency test.
+- `verify_pass`/`verify_fail` include realistic Eidos signals; `verify_borderline` keeps Eidos `null` so the fail-closed policy still returns `BORDERLINE`; `verify_error` is unchanged.
+- Tests: `backend/app/ai/test_policy.py` passes (47 tests). Broader suite has unrelated failures: async alert tests need `pytest-asyncio`, `/health` still expects no `ai_mode`, and `live/test_live_guard.py` fails collection on a relative import.
+
+## Live smoke script
+- Added `backend/scripts/live_smoke.py`; usage: `python -m backend.scripts.live_smoke <wav_path> --label <label> [--speaker-id <id>]`.
+- Requires `AI_MODE=live`; makes at most one enroll call (skipped when the local DB already reports enrolled samples) and exactly one verify call, with retries disabled.
+- Saves the raw verify JSON to `backend/fixtures/raw_<label>.json`, then prints parsed `aletheia`/`eidos`/`risk`; API keys are never printed.
+- Not executed as part of this change.
+
+## Live-mode edge-case hardening
+- Removed `.webm` from `DetectifClient` supported formats; browser-recorder WebM now fails locally with `unsupported_format`.
+- Added stdlib `wave` duration validation for WAV uploads outside 4-120s; non-WAV duration still relies on the API because no decoder/`ffprobe` dependency is assumed.
+- Mapped HTTP 402, 429/known rate-limit codes, timeouts, and 404/known speaker-not-found codes to clear `DetectifError` messages/codes.
+- `voice_check.verify_voice()` now includes the typed error message in its fail-closed `BORDERLINE` reason and chooses a relevant next step; API keys are never included.
+- Added mocked `httpx.MockTransport`/monkeypatch tests for 402, 429, timeout, WebM, short/long WAV, and unenrolled speaker; also fixed `live_smoke.py` to stop passing an unsupported `timeout_seconds` argument.

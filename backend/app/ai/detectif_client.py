@@ -6,6 +6,7 @@ import mimetypes
 import re
 import time
 import uuid
+import wave
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -13,12 +14,29 @@ from typing import Any, Callable
 
 import httpx
 
-SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
+SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
 SPEAKER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 RETRY_AFTER_STATUSES = {429, 503}
 BACKOFF_STATUSES = {500, 502, 504}
 DEFAULT_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 MAX_RETRY_AFTER_SECONDS = 60.0
+MIN_AUDIO_SECONDS = 4.0
+MAX_AUDIO_SECONDS = 120.0
+NO_CREDITS_CODES = {
+    "no_credits",
+    "insufficient_credits",
+    "insufficient_quota",
+    "payment_required",
+    "quota_exceeded",
+}
+RATE_LIMIT_CODES = {"rate_limit", "rate_limited", "rate_limit_exceeded", "too_many_requests"}
+SPEAKER_NOT_FOUND_CODES = {
+    "no_such_speaker",
+    "speaker_missing",
+    "speaker_not_enrolled",
+    "speaker_not_found",
+    "unknown_speaker",
+}
 
 
 class DetectifError(Exception):
@@ -101,6 +119,28 @@ def _extract_error(response: httpx.Response) -> DetectifError:
             if isinstance(err.get("message"), str) and err["message"]:
                 message = err["message"]
 
+    normalized_code = code.lower() if code else ""
+    if response.status_code == 402 or normalized_code in NO_CREDITS_CODES:
+        return DetectifError(
+            message="Detectif account has no credits or its plan quota is exhausted; request failed closed.",
+            status=response.status_code,
+            code="no_credits",
+            request_id=request_id,
+        )
+    if response.status_code == 429 or normalized_code in RATE_LIMIT_CODES:
+        return DetectifError(
+            message="Detectif rate limit reached; wait for the limit to reset before retrying.",
+            status=response.status_code,
+            code="rate_limited",
+            request_id=request_id,
+        )
+    if response.status_code == 404 or normalized_code in SPEAKER_NOT_FOUND_CODES:
+        return DetectifError(
+            message="Detectif could not find the enrolled speaker; confirm the speaker_id is enrolled before retrying.",
+            status=response.status_code,
+            code="speaker_not_enrolled",
+            request_id=request_id,
+        )
     return DetectifError(
         message=message,
         status=response.status_code,
@@ -133,6 +173,38 @@ def _normalize_verify_response(body: dict[str, Any]) -> dict[str, Any]:
         normalized["aletheia_status"] = "available"
 
     return normalized
+
+
+def _validate_audio_length(path: Path) -> None:
+    if path.suffix.lower() != ".wav":
+        return
+    try:
+        with wave.open(str(path), "rb") as wav_file:
+            frames = wav_file.getnframes()
+            frame_rate = wav_file.getframerate()
+    except (OSError, EOFError, wave.Error) as exc:
+        raise DetectifError(
+            "WAV audio could not be read for duration validation.",
+            code="invalid_audio",
+        ) from exc
+    if frame_rate <= 0:
+        raise DetectifError(
+            "WAV audio has an invalid frame rate.",
+            code="invalid_audio",
+        )
+    duration = frames / float(frame_rate)
+    if duration < MIN_AUDIO_SECONDS:
+        raise DetectifError(
+            f"Audio is too short ({duration:.1f}s); Detectif requires at least "
+            f"{MIN_AUDIO_SECONDS:.0f} seconds.",
+            code="audio_too_short",
+        )
+    if duration > MAX_AUDIO_SECONDS:
+        raise DetectifError(
+            f"Audio is too long ({duration:.1f}s); Detectif allows at most "
+            f"{MAX_AUDIO_SECONDS:.0f} seconds.",
+            code="audio_too_long",
+        )
 
 
 class DetectifClient:
@@ -183,6 +255,7 @@ class DetectifClient:
                 f"Unsupported audio format '{path.suffix.lower()}'.",
                 code="unsupported_format",
             )
+        _validate_audio_length(path)
 
         audio_bytes = path.read_bytes()
         if not audio_bytes:
@@ -209,6 +282,15 @@ class DetectifClient:
                     data=data or {},
                     files={"file": (path.name, audio_bytes, content_type)},
                 )
+            except httpx.TimeoutException as exc:
+                last_error = DetectifError(
+                    "Detectif request timed out; request failed closed.",
+                    code="timeout",
+                )
+                if attempt < len(self._backoff_seconds):
+                    self._sleep(self._backoff_seconds[attempt])
+                    continue
+                raise last_error from exc
             except httpx.HTTPError as exc:
                 last_error = DetectifError(
                     f"Network error contacting Detectif API: {exc.__class__.__name__}.",

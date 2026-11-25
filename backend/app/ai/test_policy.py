@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -10,11 +12,11 @@ import httpx
 import pytest
 
 try:
-    from backend.app.ai import challenge, enrollment, policy
+    from backend.app.ai import challenge, enrollment, policy, voice_check
     from backend.app.ai.detectif_client import DetectifClient, DetectifError
     from backend.app.ai.voice_check import verify_voice
 except ModuleNotFoundError:
-    from app.ai import challenge, enrollment, policy  # type: ignore[no-redef]
+    from app.ai import challenge, enrollment, policy, voice_check  # type: ignore[no-redef]
     from app.ai.detectif_client import DetectifClient, DetectifError  # type: ignore[no-redef]
     from app.ai.voice_check import verify_voice  # type: ignore[no-redef]
 
@@ -46,6 +48,17 @@ def _assert_reason_quality(reason: str) -> None:
     assert isinstance(reason, str) and len(reason.strip()) > 20
     assert "evidence, not proof" in lower
     assert "next step:" in lower
+
+
+def _write_wav(path: Path, seconds: float = 5.0) -> Path:
+    frame_rate = 8000
+    frames = max(1, int(frame_rate * seconds))
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(frame_rate)
+        wav_file.writeframes(b"\x00\x00" * frames)
+    return path
 
 
 # --- Policy tests ---
@@ -215,7 +228,7 @@ def test_verify_speaker_deepfake_error_marks_aletheia_unavailable(
     tmp_path: Path,
 ) -> None:
     wav = tmp_path / "clip.wav"
-    wav.write_bytes(b"RIFFdemo")
+    _write_wav(wav)
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/speakers/verify"
@@ -254,7 +267,7 @@ def test_enroll_employee_local_validation_and_409_cap(tmp_path: Path) -> None:
     valid_files = []
     for i in range(6):
         p = tmp_path / f"sample_{i}.wav"
-        p.write_bytes(b"RIFFdata")
+        _write_wav(p)
         valid_files.append(p)
 
     with pytest.raises(enrollment.EnrollmentError, match="maximum of 5"):
@@ -294,7 +307,7 @@ def test_verify_voice_live_single_combined_call_and_deepfake_error_fail_closed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     wav = tmp_path / "live.wav"
-    wav.write_bytes(b"RIFFdemo")
+    _write_wav(wav)
 
     monkeypatch.setenv("AI_MODE", "live")
     monkeypatch.setenv("DETECTIF_API_KEY", "dummy-key")
@@ -359,4 +372,214 @@ def test_verify_voice_fixture_mode(
     out = verify_voice("unused.wav", "emp_001")
     assert set(out.keys()) == {"aletheia", "eidos", "risk", "reason"}
     assert out["risk"] == expected_risk
+    _assert_reason_quality(out["reason"])
+
+
+def test_stored_fixture_risks_match_policy_classification() -> None:
+    fixture_paths = sorted(voice_check.FIXTURES_DIR.glob("verify_*.json"))
+    assert fixture_paths
+
+    for fixture_path in fixture_paths:
+        data = json.loads(fixture_path.read_text(encoding="utf-8"))
+        assert set(data) == voice_check.REQUIRED_OUTPUT_KEYS
+        risk, _reason = policy.classify(data["aletheia"], data["eidos"])
+        assert data["risk"] == risk, fixture_path.name
+
+
+@pytest.mark.parametrize(
+    ("status", "payload", "expected_code", "expected_fragment"),
+    [
+        (
+            402,
+            {"error": {"code": "payment_required", "message": "no credits"}},
+            "no_credits",
+            "no credits",
+        ),
+        (
+            429,
+            {"error": {"code": "rate_limited", "message": "slow down"}},
+            "rate_limited",
+            "rate limit reached",
+        ),
+        (
+            404,
+            {"error": {"code": "speaker_not_found", "message": "missing"}},
+            "speaker_not_enrolled",
+            "enrolled speaker",
+        ),
+    ],
+)
+def test_client_maps_live_api_errors_to_clear_messages(
+    tmp_path: Path,
+    status: int,
+    payload: dict[str, Any],
+    expected_code: str,
+    expected_fragment: str,
+) -> None:
+    wav = _write_wav(tmp_path / "clip.wav")
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(status, json=payload)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(base_url="https://platform.detectif.ai", transport=transport) as http_client:
+        client = DetectifClient("test-key", client=http_client, backoff_seconds=())
+        with pytest.raises(DetectifError) as exc_info:
+            client.verify_speaker(wav, "emp_001")
+
+    assert calls == 1
+    assert exc_info.value.code == expected_code
+    assert expected_fragment in str(exc_info.value).lower()
+    assert "test-key" not in str(exc_info.value)
+
+
+def test_client_timeout_fails_closed_with_clear_message(tmp_path: Path) -> None:
+    wav = _write_wav(tmp_path / "clip.wav")
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.TimeoutException("timed out", request=request)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(base_url="https://platform.detectif.ai", transport=transport) as http_client:
+        client = DetectifClient("test-key", client=http_client, backoff_seconds=())
+        with pytest.raises(DetectifError) as exc_info:
+            client.verify_speaker(wav, "emp_001")
+
+    assert calls == 1
+    assert exc_info.value.code == "timeout"
+    assert "timed out" in str(exc_info.value).lower()
+    assert "test-key" not in str(exc_info.value)
+
+
+def test_client_rejects_webm_before_upload(tmp_path: Path) -> None:
+    webm = tmp_path / "clip.webm"
+    webm.write_bytes(b"fake webm")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        pytest.fail("webm should be rejected before any API call")
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(base_url="https://platform.detectif.ai", transport=transport) as http_client:
+        client = DetectifClient("test-key", client=http_client, backoff_seconds=())
+        with pytest.raises(DetectifError) as exc_info:
+            client.verify_speaker(webm, "emp_001")
+
+    assert exc_info.value.code == "unsupported_format"
+    assert "unsupported audio format '.webm'" in str(exc_info.value).lower()
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected_code", "expected_fragment"),
+    [
+        (3.5, "audio_too_short", "too short"),
+        (121.0, "audio_too_long", "too long"),
+    ],
+)
+def test_client_rejects_wav_outside_4_to_120_seconds(
+    tmp_path: Path,
+    seconds: float,
+    expected_code: str,
+    expected_fragment: str,
+) -> None:
+    wav = _write_wav(tmp_path / "clip.wav", seconds=seconds)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        pytest.fail("invalid-duration WAV should be rejected before any API call")
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(base_url="https://platform.detectif.ai", transport=transport) as http_client:
+        client = DetectifClient("test-key", client=http_client, backoff_seconds=())
+        with pytest.raises(DetectifError) as exc_info:
+            client.verify_speaker(wav, "emp_001")
+
+    assert exc_info.value.code == expected_code
+    assert expected_fragment in str(exc_info.value).lower()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_fragment"),
+    [
+        (
+            DetectifError(
+                "Detectif account has no credits or its plan quota is exhausted; request failed closed.",
+                code="no_credits",
+                status=402,
+            ),
+            "credit",
+        ),
+        (
+            DetectifError(
+                "Detectif rate limit reached; wait for the limit to reset before retrying.",
+                code="rate_limited",
+                status=429,
+            ),
+            "rate limit",
+        ),
+        (
+            DetectifError("Detectif request timed out; request failed closed.", code="timeout"),
+            "timed out",
+        ),
+        (
+            DetectifError(
+                "Detectif could not find the enrolled speaker; confirm the speaker_id is enrolled before retrying.",
+                code="speaker_not_enrolled",
+                status=404,
+            ),
+            "enrolled",
+        ),
+        (
+            DetectifError("Unsupported audio format '.webm'.", code="unsupported_format"),
+            "unsupported audio format",
+        ),
+        (
+            DetectifError("Audio is too short (3.5s).", code="audio_too_short"),
+            "too short",
+        ),
+        (
+            DetectifError("Audio is too long (121.0s).", code="audio_too_long"),
+            "too long",
+        ),
+    ],
+)
+def test_verify_voice_api_errors_fail_closed_with_clear_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error: DetectifError,
+    expected_fragment: str,
+) -> None:
+    wav = _write_wav(tmp_path / "live.wav")
+    monkeypatch.setenv("AI_MODE", "live")
+    monkeypatch.setenv("DETECTIF_API_KEY", "dummy-key")
+    calls = 0
+
+    def fake_verify_speaker(
+        self: DetectifClient,
+        path: str | Path,
+        speaker_id: str,
+        detect_deepfake: bool = True,
+    ) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        assert str(path) == str(wav)
+        assert speaker_id == "emp_001"
+        assert detect_deepfake is True
+        raise error
+
+    monkeypatch.setattr(DetectifClient, "verify_speaker", fake_verify_speaker)
+
+    out = verify_voice(str(wav), "emp_001")
+
+    assert calls == 1
+    assert set(out.keys()) == {"aletheia", "eidos", "risk", "reason"}
+    assert out["aletheia"] is None
+    assert out["eidos"] is None
+    assert out["risk"] == "BORDERLINE"
+    assert expected_fragment in out["reason"].lower()
+    assert "dummy-key" not in out["reason"]
     _assert_reason_quality(out["reason"])

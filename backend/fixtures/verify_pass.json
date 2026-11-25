@@ -5,7 +5,12 @@
     "duration_seconds": 6.4,
     "operation_id": "op_sample_pass_001"
   },
-  "eidos": null,
+  "eidos": {
+    "decision": "match",
+    "similarity": 0.89,
+    "duration_seconds": 6.4,
+    "operation_id": "op_sample_eidos_pass_001"
+  },
   "risk": "PASS",
-  "reason": "Voice check found no synthetic speech indicators. Remember that this score is evidence, not proof. Next step: continue with your normal break-glass approval checks, or call back on a number you already know if anything feels off."
+  "reason": "Voice matched the enrolled speaker with no synthetic speech indicators detected. Remember that these scores are evidence, not proof. Next step: continue with your normal break-glass approval checks, or call back on a number you already know if anything feels off."
 }
