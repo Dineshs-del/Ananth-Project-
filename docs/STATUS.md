@@ -1,5 +1,9 @@
 # Status
 
+## Pytest collection
+- Added `backend/pytest.ini` (`testpaths = app`, `pythonpath = ..`, registered `asyncio` marker) and `backend/conftest.py` aliasing `app` to `backend.app`, with package `__init__.py` files, so `cd backend && python -m pytest` collects every suite with consistent imports.
+- Verified from both `backend/` and the repo root: 81 passed, 1 failed (the known stale `/health` assertion), no collection errors.
+
 ## Python requirements
 - Added `backend/requirements.txt` with all backend, bot and test dependencies, including `pytest-asyncio`; `requirements-bot.txt` now delegates to it with `-r backend/requirements.txt`.
 - Verified both requirements files install/resolve cleanly.
