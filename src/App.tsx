@@ -14,6 +14,11 @@ import {
   Menu,
   X,
   Radio,
+  Send,
+  HelpCircle,
+  AlertOctagon,
+  Activity,
+  Layers,
 } from 'lucide-react';
 import type {
   ApprovalRecord,
@@ -32,18 +37,22 @@ import { ApproverPhone } from './components/ApproverPhone';
 import { AuditDashboard } from './components/AuditDashboard';
 import { EnrollmentPanel } from './components/EnrollmentPanel';
 import { LiveGuardPanel } from './components/LiveGuardPanel';
+import { AmbientBackground } from './components/ui/AmbientBackground';
+import { PressableButton } from './components/ui/PressableButton';
+import { StatusBadge } from './components/ui/StatusBadge';
 
-type ActiveTab = 'requester' | 'live_guard' | 'approver' | 'audit' | 'enrollment';
+export type ActiveTab = 'requester' | 'live_guard' | 'approver' | 'audit' | 'enrollment' | 'telegram';
 
-const NAV_ITEMS: { id: ActiveTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+export const NAV_ITEMS: { id: ActiveTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'requester', label: 'Requester Gate', icon: Shield },
   { id: 'live_guard', label: 'Live Guard', icon: Radio },
   { id: 'approver', label: 'Approver Phone', icon: Smartphone },
   { id: 'audit', label: 'Operations & Audit', icon: ScrollText },
   { id: 'enrollment', label: 'Voice Enrollment', icon: Users },
+  { id: 'telegram', label: 'Telegram Channel', icon: Send },
 ];
 
-const SCENARIOS: { id: FixtureScenario; label: string }[] = [
+export const SCENARIOS: { id: FixtureScenario; label: string }[] = [
   { id: 'pass', label: 'Pass' },
   { id: 'borderline', label: 'Borderline' },
   { id: 'fail', label: 'Fail' },
@@ -59,6 +68,9 @@ export default function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState(voiceGateEngine.getApiBaseUrl());
   const [scenario, setScenario] = useState<FixtureScenario>('pass');
   const [liveHealthy, setLiveHealthy] = useState<boolean | null>(null);
+
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [showLimitations, setShowLimitations] = useState(false);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [requests, setRequests] = useState<BreakGlassRequest[]>([]);
@@ -273,41 +285,50 @@ export default function App() {
   const activeTabLabel = NAV_ITEMS.find((n) => n.id === activeTab)?.label || 'Requester Gate';
 
   const SidebarContent = (
-    <div className="flex flex-col h-full">
-      <div className="h-16 px-6 flex items-center border-b border-slate-200">
-        <span className="font-display text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0">
-          Voice Gate
-        </span>
+    <div className="flex flex-col h-full bg-slate-950/80 backdrop-blur-2xl border-r border-cyan-500/10">
+      {/* Brand Header */}
+      <div className="h-20 px-6 flex items-center justify-between border-b border-white/[0.06]">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.4)] ring-1 ring-cyan-300/40">
+            <Shield className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <span className="font-display text-base font-bold tracking-tight text-white block">
+              Break-Glass
+            </span>
+            <span className="text-[11px] font-mono tracking-wider text-cyan-400 block -mt-0.5">
+              VOICE GATE · 2K26
+            </span>
+          </div>
+        </div>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      {/* Nav Menu */}
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const active = activeTab === item.id;
           return (
             <button
               key={item.id}
+              data-testid={`nav-tab-${item.id}`}
               type="button"
               onClick={() => {
                 setActiveTab(item.id);
                 setMobileMenuOpen(false);
               }}
-              className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`w-full flex items-center justify-between gap-3 px-3.5 py-3 text-sm font-medium rounded-xl transition-all duration-200 cursor-pointer ${
                 active
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  ? 'bg-gradient-to-r from-cyan-500/20 to-indigo-500/10 text-cyan-300 border border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
               }`}
             >
-              <span className="inline-flex items-center gap-2.5">
-                <Icon className="w-4 h-4 shrink-0" />
+              <span className="inline-flex items-center gap-3">
+                <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-cyan-400' : 'text-slate-500'}`} />
                 {item.label}
               </span>
               {item.id === 'approver' && pendingApprovals.length > 0 && (
-                <span
-                  className={`font-mono text-xs tabular-nums ${
-                    active ? 'text-slate-200' : 'text-[#2563EB] font-semibold'
-                  }`}
-                >
+                <span className="font-mono text-xs px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold tabular-nums">
                   {pendingApprovals.length}
                 </span>
               )}
@@ -316,29 +337,33 @@ export default function App() {
         })}
       </nav>
 
-      {/* Functional Engine & Fixture Controls */}
-      <div className="p-4 border-t border-slate-200 space-y-4 bg-[#F8FAFC]">
+      {/* Sidebar Engine & Controls */}
+      <div className="p-4 border-t border-white/[0.06] space-y-4 bg-slate-950/60">
         <div className="space-y-1.5">
-          <div className="text-[11px] font-medium text-slate-500">Backend Engine</div>
-          <div className="grid grid-cols-2 gap-1 p-1 bg-slate-200/70 rounded-lg">
+          <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider font-mono">
+            Backend Engine
+          </div>
+          <div className="grid grid-cols-2 gap-1 p-1 bg-slate-900/90 rounded-lg border border-white/5">
             <button
               type="button"
+              data-testid="toggle-mode-local"
               onClick={() => handleModeSwitch('local')}
-              className={`py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap cursor-pointer ${
+              className={`py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer ${
                 backendMode === 'local'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-xs'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               Demo Engine
             </button>
             <button
               type="button"
+              data-testid="toggle-mode-live"
               onClick={() => handleModeSwitch('live')}
-              className={`py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap cursor-pointer ${
+              className={`py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer ${
                 backendMode === 'live'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-xs'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               Live FastAPI
@@ -348,19 +373,20 @@ export default function App() {
 
         {backendMode === 'local' ? (
           <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-slate-500">
+            <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider font-mono">
               Voice Fixture Outcome
             </div>
-            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-200/70 rounded-lg">
+            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-900/90 rounded-lg border border-white/5">
               {SCENARIOS.map((sc) => (
                 <button
                   key={sc.id}
                   type="button"
+                  data-testid={`scenario-btn-${sc.id}`}
                   onClick={() => handleScenarioChange(sc.id)}
-                  className={`py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap cursor-pointer ${
+                  className={`py-1 text-xs font-medium rounded-md transition-all cursor-pointer ${
                     scenario === sc.id
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white/10 text-white font-semibold'
+                      : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   {sc.label}
@@ -370,7 +396,7 @@ export default function App() {
           </div>
         ) : (
           <div className="space-y-1.5">
-            <label htmlFor="api-base-url" className="block text-[11px] font-medium text-slate-500">
+            <label htmlFor="api-base-url" className="block text-[11px] font-medium text-slate-400">
               FastAPI URL
             </label>
             <input
@@ -382,84 +408,144 @@ export default function App() {
                 voiceGateEngine.setMode('live', e.target.value);
               }}
               onBlur={() => handleModeSwitch('live')}
-              className="w-full h-8 px-2.5 text-xs font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:border-[#2563EB]"
+              className="w-full h-8 px-2.5 text-xs font-mono bg-slate-900/80 border border-white/10 rounded-md text-white focus:outline-none focus:border-cyan-400"
             />
             {liveHealthy !== null && (
               <div
-                className={`text-[11px] font-medium ${
-                  liveHealthy ? 'text-[#15803D]' : 'text-[#B91C1C]'
+                className={`text-[11px] font-medium flex items-center gap-1.5 ${
+                  liveHealthy ? 'text-emerald-400' : 'text-rose-400'
                 }`}
               >
-                {liveHealthy ? 'Connected to FastAPI backend' : 'Backend unreachable on URL'}
+                <span className={`w-1.5 h-1.5 rounded-full ${liveHealthy ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-rose-400 shadow-[0_0_6px_#f43f5e]'}`} />
+                {liveHealthy ? 'Connected to FastAPI' : 'Backend unreachable'}
               </div>
             )}
           </div>
         )}
+
+        {/* Quick Modal Links */}
+        <div className="pt-2 flex items-center justify-between text-xs text-slate-400 border-t border-white/[0.04]">
+          <button
+            type="button"
+            onClick={() => setShowHowItWorks(true)}
+            className="hover:text-cyan-400 inline-flex items-center gap-1 transition-colors cursor-pointer"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+            How it works
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowLimitations(true)}
+            className="hover:text-amber-400 inline-flex items-center gap-1 transition-colors cursor-pointer"
+          >
+            <AlertOctagon className="w-3.5 h-3.5" />
+            Limitations
+          </button>
+        </div>
       </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen flex bg-[#F8FAFC] text-slate-900">
+    <div className="min-h-screen flex bg-[#030712] text-slate-100 font-sans antialiased relative selection:bg-cyan-500/30 selection:text-cyan-200">
+      <AmbientBackground />
+
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:block w-[252px] shrink-0 bg-white border-r border-slate-200 sticky top-0 h-screen">
+      <aside className="hidden lg:block w-[268px] shrink-0 sticky top-0 h-screen z-40">
         {SidebarContent}
       </aside>
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex">
-          <div className="w-[260px] bg-white h-full border-r border-slate-200 relative">
+          <div className="w-[280px] h-full relative">
             <button
               type="button"
               aria-label="Close navigation"
               onClick={() => setMobileMenuOpen(false)}
-              className="absolute top-4 right-4 p-1.5 text-slate-500 hover:text-slate-900 cursor-pointer"
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white cursor-pointer z-50"
             >
               <X className="w-5 h-5" />
             </button>
             {SidebarContent}
           </div>
           <div
-            className="flex-1 bg-slate-900/30"
+            className="flex-1 bg-black/60 backdrop-blur-sm"
             onClick={() => setMobileMenuOpen(false)}
           />
         </div>
       )}
 
-      {/* Main Content */}
+      {/* Main Workspace */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Top Bar (Breadcrumb left, 1-2 functional actions right) */}
-        <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between gap-6 sticky top-0 z-30">
+        {/* Floating Glass Top Bar */}
+        <header className="h-16 px-4 sm:px-6 flex items-center justify-between gap-4 sticky top-0 z-30 bg-slate-950/70 backdrop-blur-xl border-b border-white/[0.06]">
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
               aria-label="Open navigation"
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 -ml-2 text-slate-600 hover:text-slate-900 cursor-pointer"
+              className="lg:hidden p-2 -ml-2 text-slate-400 hover:text-white cursor-pointer"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div className="flex items-center gap-2 text-sm min-w-0">
-              <span className="text-slate-500 whitespace-nowrap hidden sm:inline">
-                Break-Glass Voice Gate
+            <div className="flex items-center gap-2.5 text-sm min-w-0">
+              <span className="text-slate-400 whitespace-nowrap hidden sm:inline font-medium">
+                Break-Glass
               </span>
-              <span aria-hidden="true" className="text-slate-300 hidden sm:inline">
+              <span aria-hidden="true" className="text-slate-600 hidden sm:inline">
                 /
               </span>
-              <span className="font-semibold text-slate-900 truncate">{activeTabLabel}</span>
+              <span className="font-semibold text-white truncate font-display tracking-tight">
+                {activeTabLabel}
+              </span>
             </div>
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
+            {/* Live Health Indicator Dot */}
+            <div
+              data-testid="health-indicator"
+              className="hidden md:inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/80 border border-white/10 text-xs font-mono"
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  backendMode === 'local'
+                    ? 'bg-cyan-400 shadow-[0_0_8px_#06b6d4]'
+                    : liveHealthy === true
+                      ? 'bg-emerald-400 shadow-[0_0_8px_#10b981]'
+                      : liveHealthy === false
+                        ? 'bg-rose-400 shadow-[0_0_8px_#f43f5e]'
+                        : 'bg-slate-400'
+                }`}
+              />
+              <span className="text-slate-300">
+                {backendMode === 'local'
+                  ? 'Demo Engine'
+                  : liveHealthy === true
+                    ? 'FastAPI Connected'
+                    : 'Backend Offline'}
+              </span>
+            </div>
+
+            {/* Simulated Execution Badge */}
+            <div
+              data-testid="simulated-badge"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-mono tracking-wider font-semibold uppercase"
+            >
+              <Activity className="w-3 h-3 animate-pulse" />
+              <span>Simulated Execution</span>
+            </div>
+
             {activeTab === 'requester' && (
               <button
                 type="button"
+                data-testid="toggle-split-phone"
                 onClick={() => setSplitPhoneView((v) => !v)}
-                className={`hidden xl:inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-md border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`hidden xl:inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-lg border transition-all cursor-pointer ${
                   splitPhoneView
-                    ? 'bg-slate-100 border-slate-300 text-slate-900'
-                    : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900'
+                    ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300'
+                    : 'bg-slate-900/80 border-white/10 text-slate-300 hover:text-white'
                 }`}
               >
                 <Columns2 className="w-3.5 h-3.5" />
@@ -467,29 +553,30 @@ export default function App() {
               </button>
             )}
 
-            <button
-              type="button"
+            <PressableButton
+              variant="primary"
+              size="sm"
+              icon={Plus}
+              data-testid="new-request-btn"
               onClick={() => {
                 setActiveRequestId(null);
                 setErrorMessage(null);
                 setActiveTab('requester');
               }}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-[#0F172A] hover:bg-slate-800 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" />
               New Request
-            </button>
+            </PressableButton>
           </div>
         </header>
 
-        {/* Workspace Viewport */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1280px] w-full mx-auto">
+        {/* Main Viewport Content */}
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1400px] w-full mx-auto">
           {activeTab === 'requester' && (
             <div
               className={
                 splitPhoneView
-                  ? 'grid grid-cols-1 xl:grid-cols-12 gap-6 items-start'
-                  : 'max-w-[860px]'
+                  ? 'grid grid-cols-1 xl:grid-cols-12 gap-8 items-start'
+                  : 'max-w-[920px] mx-auto'
               }
             >
               <div className={splitPhoneView ? 'xl:col-span-8' : ''}>
@@ -547,11 +634,12 @@ export default function App() {
 
           {activeTab === 'approver' && (
             <div className="py-2">
-              <div className="max-w-[420px] mx-auto mb-5 text-center">
-                <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-                  Second-Device Approver Page
+              <div className="max-w-[440px] mx-auto mb-6 text-center">
+                <StatusBadge status="PENDING" label="Second-Device Gate" className="mb-2" />
+                <h1 className="text-2xl font-bold tracking-tight text-white font-display">
+                  Second-Device Approver Phone
                 </h1>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">
                   Review the exact bound operation and tap the matching 2-digit code before the 2-minute window expires.
                 </p>
               </div>
@@ -587,8 +675,115 @@ export default function App() {
               onEnrollSample={handleEnrollSample}
             />
           )}
+
+          {activeTab === 'telegram' && (
+            <div className="max-w-[900px] mx-auto py-8 text-center">
+              <div className="p-8 rounded-2xl bg-slate-900/60 border border-cyan-500/20 backdrop-blur-xl space-y-4">
+                <Send className="w-12 h-12 text-cyan-400 mx-auto" />
+                <h2 className="text-xl font-bold text-white font-display">
+                  Telegram Channel Preview
+                </h2>
+                <p className="text-sm text-slate-300 max-w-lg mx-auto leading-relaxed">
+                  Simulated preview — mirrors the Telegram bot&apos;s message formats. Coming in Phase 5 with interactive DM deepfake checks, enrollment consent flow, approver notifications, and hash-chain audit reports.
+                </p>
+              </div>
+            </div>
+          )}
         </main>
       </div>
+
+      {/* How It Works Modal */}
+      {showHowItWorks && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="relative w-full max-w-2xl bg-slate-950 border border-cyan-500/30 rounded-2xl p-6 sm:p-8 space-y-6 shadow-[0_0_50px_rgba(6,182,212,0.2)]">
+            <button
+              type="button"
+              onClick={() => setShowHowItWorks(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 text-cyan-400 font-mono text-xs uppercase tracking-wider">
+                <Layers className="w-4 h-4" />
+                5-Layer Trust Architecture
+              </div>
+              <h2 className="text-2xl font-bold text-white font-display">How Break-Glass Voice Gate Works</h2>
+              <p className="text-xs text-slate-400">
+                A convincing voice must never be enough to execute a critical action.
+              </p>
+            </div>
+
+            <div className="space-y-3 text-xs leading-relaxed text-slate-300">
+              <div className="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-1">
+                <div className="font-semibold text-cyan-300 font-mono">Layer 1: Random Spoken Challenge</div>
+                <div>Prevents replaying static stolen recordings by binding live audio to fresh phrases.</div>
+              </div>
+              <div className="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-1">
+                <div className="font-semibold text-emerald-300 font-mono">Layer 2: Aletheia Deepfake Detection</div>
+                <div>Inspects spectral anomalies and acoustic synthesis artifacts to detect generative voice cloning.</div>
+              </div>
+              <div className="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-1">
+                <div className="font-semibold text-blue-300 font-mono">Layer 3: Eidos Speaker Match</div>
+                <div>Compares audio embeddings against 1–5 consented enrolled voice samples of the claimed identity.</div>
+              </div>
+              <div className="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-1">
+                <div className="font-semibold text-amber-300 font-mono">Layer 4: Action-Bound Second-Device Approval</div>
+                <div>Number matching with 2-minute expiration, different-person authorization, and out-of-band peer review.</div>
+              </div>
+              <div className="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-1">
+                <div className="font-semibold text-purple-300 font-mono">Layer 5: Backend Enforcement &amp; Audit Chain</div>
+                <div>One-time atomic consumption of approvals, simulated action execution, and SHA-256 chained audit ledger.</div>
+              </div>
+            </div>
+
+            <PressableButton variant="primary" className="w-full" onClick={() => setShowHowItWorks(false)}>
+              Got it
+            </PressableButton>
+          </div>
+        </div>
+      )}
+
+      {/* Limitations Modal */}
+      {showLimitations && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="relative w-full max-w-xl bg-slate-950 border border-amber-500/30 rounded-2xl p-6 sm:p-8 space-y-6 shadow-[0_0_50px_rgba(245,158,11,0.2)]">
+            <button
+              type="button"
+              onClick={() => setShowLimitations(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 text-amber-400 font-mono text-xs uppercase tracking-wider">
+                <AlertOctagon className="w-4 h-4" />
+                Honest Security Disclosures
+              </div>
+              <h2 className="text-2xl font-bold text-white font-display">System Limitations</h2>
+            </div>
+
+            <div className="space-y-3 text-xs leading-relaxed text-slate-300">
+              <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/20 space-y-1">
+                <span className="font-semibold text-amber-300">Scores are evidence, not proof:</span>
+                <p>AI voice-model outputs represent statistical likelihoods. High certainty does not guarantee authenticity.</p>
+              </div>
+              <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/20 space-y-1">
+                <span className="font-semibold text-amber-300">Challenge phrases don&apos;t halt real-time zero-shot clones:</span>
+                <p>Advanced low-latency voice morphers can stream prompted words in near real time; hence second-device approval is mandatory.</p>
+              </div>
+              <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/20 space-y-1">
+                <span className="font-semibold text-amber-300">Second device is not phishing-resistant FIDO2:</span>
+                <p>While number-matching reduces push fatigue, it does not replace cryptographic hardware-token MFA.</p>
+              </div>
+            </div>
+
+            <PressableButton variant="amber" className="w-full" onClick={() => setShowLimitations(false)}>
+              Acknowledge Disclosures
+            </PressableButton>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
