@@ -121,6 +121,10 @@ class BreakGlassRequestOut(BaseModel):
     decided_at: str | None
 
 
+class BreakGlassRequestWithSourceOut(BreakGlassRequestOut):
+    source: Literal["live", "fixture"]
+
+
 class ApprovalDecisionRequest(BaseModel):
     reviewer_id: str = Field(..., min_length=1, max_length=64)
     action: DecisionAction
@@ -227,3 +231,4 @@ class LiveChunkUploadOut(BaseModel):
     message: str
     chunk: LiveChunkResultOut | None = None
     session: LiveSessionOut
+    source: Literal["live", "fixture"]

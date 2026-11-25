@@ -220,6 +220,13 @@ def _normalize_chunk_result(raw: Any) -> dict[str, Any]:
     }
 
 
+def _voice_source() -> str:
+    try:
+        return load_config().ai_mode
+    except ConfigError:
+        return "fixture"
+
+
 def _default_telegram_notifier(
     request_id: str,
     state: str,
@@ -446,6 +453,7 @@ class LiveGuardService:
                     "message": "Session has already ended; chunk ignored.",
                     "chunk": None,
                     "session": session.to_dict(),
+                    "source": _voice_source(),
                 }
             if session.chunks_processed >= session.max_chunks:
                 now = utc_now_iso()
@@ -472,6 +480,7 @@ class LiveGuardService:
                     "message": cap_msg,
                     "chunk": None,
                     "session": session.to_dict(),
+                    "source": _voice_source(),
                 }
 
         cfg = self._config_loader()
@@ -590,6 +599,7 @@ class LiveGuardService:
                     "message": "Session ended while chunk was in flight; result ignored.",
                     "chunk": None,
                     "session": session.to_dict(),
+                    "source": _voice_source(),
                 }
 
             previous_state = session.state
@@ -743,6 +753,7 @@ class LiveGuardService:
                 "message": msg,
                 "chunk": record.to_dict(),
                 "session": session.to_dict(),
+                "source": _voice_source(),
             }
 
 

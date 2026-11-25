@@ -154,6 +154,7 @@ def test_state_machine_pass_streak_borderline_reset_fail_latch_and_cleanup(
     )
     assert c1["session"]["state"] == "MONITORING"
     assert c1["session"]["pass_streak"] == 1
+    assert c1["source"] == "live"
     assert len(tg_calls) == 1  # No Telegram spam when state didn't change
 
     # Chunk 2 PASS -> transitions to PASS!
@@ -340,6 +341,7 @@ def test_chunk_cap_errors_non_audio_rejection_and_fixture_fail_demo(
     assert c2["chunk"]["risk"] == "FAIL"
     assert c2["session"]["state"] == "FAIL"
     assert c2["session"]["active"] is False  # Cap of 2 chunks reached!
+    assert c2["source"] == "fixture"
 
     # Chunk 3 after cap is ignored.
     c3 = svc.process_chunk(
@@ -350,6 +352,7 @@ def test_chunk_cap_errors_non_audio_rejection_and_fixture_fail_demo(
         stream=io.BytesIO(b"small"),
     )
     assert c3["ignored"] is True
+    assert c3["source"] == "fixture"
     assert list(cfg.upload_dir.iterdir()) == []
 
 

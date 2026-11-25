@@ -42,6 +42,7 @@ from .core.schemas import (
     AuditEventOut,
     BreakGlassRequestCreate,
     BreakGlassRequestOut,
+    BreakGlassRequestWithSourceOut,
     EmployeeCreate,
     EmployeeOut,
     ExecuteActionRequest,
@@ -70,6 +71,13 @@ def _verify_reviewer_token(authorization: str | None) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid reviewer Bearer token.",
         )
+
+
+def _ai_source() -> str:
+    try:
+        return load_config().ai_mode
+    except ConfigError:
+        return "fixture"
 
 
 def _raise_http(exc: ApprovalError) -> None:
@@ -263,7 +271,7 @@ def create_app() -> FastAPI:
 
     @application.post(
         "/api/v1/requests/{request_id}/verify-voice",
-        response_model=BreakGlassRequestOut,
+        response_model=BreakGlassRequestWithSourceOut,
     )
     def api_verify_voice(
         request_id: str,
@@ -283,7 +291,7 @@ def create_app() -> FastAPI:
         try:
             with get_db() as conn:
                 try:
-                    return submit_voice_verification(
+                    result = submit_voice_verification(
                         conn,
                         request_id=request_id,
                         audio_path=str(saved_path),
@@ -293,6 +301,9 @@ def create_app() -> FastAPI:
                     _raise_http(exc)
         finally:
             saved_path.unlink(missing_ok=True)
+
+        result["source"] = _ai_source()
+        return result
 
     @application.post(
         "/api/v1/requests/{request_id}/approval",

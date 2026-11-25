@@ -1,5 +1,10 @@
 # Status
 
+## Response source field
+- Added additive `source: "live" | "fixture"` to `/verify-voice` responses (via `BreakGlassRequestWithSourceOut`) and to live chunk responses; the 4-key `voice_result` contract is unchanged.
+- Live chunk source follows `AI_MODE` and falls back to `"fixture"` on config errors; mocked tests assert both live and fixture chunk responses.
+- Suite after this step: 87 passed.
+
 ## Detectif call budget
 - Added process-wide `MAX_LIVE_CALLS` (default 100, invalid values fall back to 100) enforced at `DetectifClient._post`, so every enroll/verify/deepfake attempt shares one budget; exhaustion raises typed `live_call_limit_reached` and voice checks fail closed.
 - `/health` now returns `remaining_live_calls`; updated the previously stale `/health` assertion and added mocked budget tests.

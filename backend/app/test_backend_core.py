@@ -341,6 +341,8 @@ def test_fastapi_full_workflow_and_reviewer_token(
     )
     assert verified.status_code == 200
     body = verified.json()
+    assert body["source"] == "fixture"
+    assert set(body["voice_result"].keys()) == {"aletheia", "eidos", "risk", "reason"}
     assert body["status"] == "PENDING_APPROVAL"
     approval_id = body["active_approval"]["approval_id"]
     matching_number = body["active_approval"]["matching_number"]
