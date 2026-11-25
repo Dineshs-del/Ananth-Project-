@@ -1,5 +1,10 @@
 # Status
 
+## Bot bridge loopback enforcement
+- `BotInternalBridge` now rejects any non-loopback bind host at construction; only `127.0.0.1` and `::1` are accepted. Added a negative test.
+- Bearer comparison now compares UTF-8 bytes so non-ASCII tokens cannot raise a 500 from `hmac.compare_digest`.
+- Suite after this step: 90 passed.
+
 ## Detectif response-shape audit
 - Audited `_parse_eidos_response`, `_parse_aletheia_from_verify`, and `_normalize_verify_response` against the documented `/v1/speakers/verify` schema. Field names and shapes already match, so no parser changes were made.
 - Added regression tests for the documented combined response (including extra fields) and the documented `deepfake.error` shape; suite: 89 passed.

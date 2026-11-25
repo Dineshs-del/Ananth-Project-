@@ -375,6 +375,11 @@ def test_audit_failure_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         svc.start_session(request_id=req_id, employee_id="emp_rahul", consent_confirmed=True)
 
 
+def test_bot_internal_bridge_rejects_non_loopback_host() -> None:
+    with pytest.raises(ValueError, match="loopback"):
+        BotInternalBridge(host="0.0.0.0", port=0, token="secret-bridge-token")
+
+
 @pytest.mark.asyncio
 async def test_bot_internal_bridge_auth_and_dispatch(tmp_path: Path) -> None:
     db_path = tmp_path / "bridge.db"

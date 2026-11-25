@@ -45,6 +45,10 @@ class BotInternalBridge:
         port: int | None = None,
         token: str | None = None,
     ) -> None:
+        if host not in {"127.0.0.1", "::1"}:
+            raise ValueError(
+                "BotInternalBridge host must be a loopback address (127.0.0.1 or ::1)."
+            )
         self._host = host
         if port is None:
             raw_port = os.getenv("BOT_INTERNAL_PORT", str(DEFAULT_INTERNAL_PORT)).strip()
@@ -136,8 +140,8 @@ class BotInternalBridge:
                 )
                 await writer.drain()
                 return
-            provided = auth[len("Bearer ") :].strip()
-            if not self._token or not hmac.compare_digest(provided, self._token):
+            provided = auth[len("Bearer ") :].strip().encode("utf-8")
+            if not self._token or not hmac.compare_digest(provided, self._token.encode("utf-8")):
                 writer.write(
                     _http_response(403, "Forbidden", {"detail": "Invalid Bearer token."})
                 )
