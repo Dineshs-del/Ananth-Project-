@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 from pathlib import Path
@@ -12,6 +13,7 @@ from ..ai import policy
 from ..ai.config import ConfigError, load_config
 from ..ai.detectif_client import DetectifClient, DetectifError
 
+logger = logging.getLogger("voicegate.bot.analyze")
 Risk = Literal["PASS", "BORDERLINE", "FAIL"]
 
 FIXTURES_DIR = Path(__file__).resolve().parents[2] / "fixtures"
@@ -170,7 +172,16 @@ def analyze_audio(wav_path: str | Path) -> dict[str, Any]:
             base_url=config.detectif_base_url,
         ) as client:
             raw = client.detect_deepfake(wav_path)
-    except (DetectifError, OSError):
+    except DetectifError as exc:
+        logger.warning(
+            "Detectif Aletheia API failed (status=%s, code=%s).",
+            exc.status,
+            exc.code,
+        )
+        risk, reason = classify_aletheia_only(None)
+        return {"aletheia": None, "risk": risk, "reason": reason}
+    except OSError:
+        logger.warning("Could not read converted WAV file for Aletheia analysis.")
         risk, reason = classify_aletheia_only(None)
         return {"aletheia": None, "risk": risk, "reason": reason}
 

@@ -9,6 +9,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 
+from .ai.config import ConfigError, load_config
 from .ai.enrollment import EnrollmentError, enroll_employee
 from .approval.service import (
     ApprovalError,
@@ -100,7 +101,11 @@ def create_app() -> FastAPI:
 
     @application.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok"}
+        try:
+            ai_mode = load_config().ai_mode
+        except ConfigError:
+            ai_mode = "misconfigured"
+        return {"status": "ok", "ai_mode": ai_mode}
 
     # --- Employees ---
 

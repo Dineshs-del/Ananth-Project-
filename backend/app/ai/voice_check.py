@@ -166,9 +166,17 @@ def verify_voice(audio_path: str, employee_id: str) -> dict[str, Any]:
                 speaker_id=employee_id,
                 detect_deepfake=True,
             )
-    except (DetectifError, OSError):
+    except DetectifError as exc:
+        detail = f" ({exc.code})" if exc.code else ""
         return _fail_closed(
-            "Voice check service encountered an error or unreadable audio and failed closed. "
+            f"Voice check service encountered an API error{detail} and failed closed. "
+            "A score is evidence, not proof. "
+            "Next step: check service credits/enrollment or ask the requester to re-record, "
+            "or call back on a number you already know."
+        )
+    except OSError:
+        return _fail_closed(
+            "Voice check service encountered unreadable audio and failed closed. "
             "A score is evidence, not proof. "
             "Next step: ask the requester to re-record, or call back on a number you already know."
         )

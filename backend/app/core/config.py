@@ -6,14 +6,18 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
 try:
     from dotenv import load_dotenv
 
-    load_dotenv()
+    for _env_path in (REPO_ROOT / ".env", BACKEND_ROOT / ".env", Path.cwd() / ".env"):
+        if _env_path.is_file():
+            load_dotenv(dotenv_path=_env_path, encoding="utf-8-sig", override=False)
 except ModuleNotFoundError:
     pass
 
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB_PATH = BACKEND_ROOT / "data" / "voice_gate.db"
 DEFAULT_UPLOAD_DIR = BACKEND_ROOT / "data" / "uploads"
 DEFAULT_CORS_ORIGINS = ("http://localhost:3000", "http://localhost:5173")

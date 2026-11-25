@@ -12,7 +12,6 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Callable
 
-from dotenv import load_dotenv
 from telegram import Message, Update
 from telegram.ext import (
     Application,
@@ -23,7 +22,7 @@ from telegram.ext import (
     filters,
 )
 
-from ..ai.config import ConfigError, load_config
+from ..ai.config import ConfigError, load_config, load_project_dotenv
 from .analyze import analyze_audio, format_telegram_reply
 from .audio import (
     AudioConversionError,
@@ -32,7 +31,7 @@ from .audio import (
     download_and_prepare_wav,
 )
 
-load_dotenv()
+load_project_dotenv()
 
 # Rate limiting constants (single source of truth).
 RATE_LIMIT_MAX_CHECKS: int = 5
@@ -308,7 +307,11 @@ def main() -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    logger.info("Starting Break-Glass Voice Gate Telegram bot (AI_MODE=%s) via long polling.", ai_cfg.ai_mode)
+    logger.info(
+        "Starting Break-Glass Voice Gate Telegram bot (AI_MODE=%s, detectif_key_configured=%s) via long polling.",
+        ai_cfg.ai_mode,
+        bool(ai_cfg.detectif_api_key),
+    )
     app = build_application(token)
     app.run_polling(drop_pending_updates=True)
     return 0
