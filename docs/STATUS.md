@@ -1,5 +1,9 @@
 # Status
 
+## Bot runbook
+- Added `docs/BOT_RUNBOOK.md` with exact repo-root commands: backend `uvicorn`, bot long polling, and the in-process loopback bridge that starts with `BOT_INTERNAL_TOKEN`.
+- Documents required env vars, ffmpeg, rate limits, consent, audit/`report`, and current identity-binding limitation.
+
 ## Bot audit detail sanitization
 - `FORBIDDEN_DETAIL_KEYS` now also strips file/path-like keys (`file`, `file_id`, `file_path`, `audio_path`, `wav_path`, `path`, `tmp_path`) so voice sample locations cannot reach the audit log.
 - Added a direct sanitizer test; suite: 91 passed.

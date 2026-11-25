@@ -1,6 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, XCircle, Clock, AlertTriangle, PhoneCall } from 'lucide-react';
+import {
+  ShieldCheck,
+  XCircle,
+  Clock,
+  AlertTriangle,
+  PhoneCall,
+  UserCheck,
+  CheckCircle2,
+  Smartphone,
+  Lock,
+} from 'lucide-react';
 import type { ApprovalRecord, Employee } from '../types';
+import { Tilt3D } from './ui/Tilt3D';
+import { Float } from './ui/Float';
+import { CountdownRing } from './ui/CountdownRing';
+import { StatusBadge } from './ui/StatusBadge';
+import { PressableButton } from './ui/PressableButton';
 
 interface ApproverPhoneProps {
   employees: Employee[];
@@ -17,12 +32,6 @@ interface ApproverPhoneProps {
     },
   ) => Promise<void>;
   compact?: boolean;
-}
-
-function formatSeconds(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
 export const ApproverPhone: React.FC<ApproverPhoneProps> = ({
@@ -43,6 +52,7 @@ export const ApproverPhone: React.FC<ApproverPhoneProps> = ({
   const [notes, setNotes] = useState('');
   const [peerReviewConfirmed, setPeerReviewConfirmed] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [successAnimation, setSuccessAnimation] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -61,6 +71,7 @@ export const ApproverPhone: React.FC<ApproverPhoneProps> = ({
       setNotes('');
       setPeerReviewConfirmed(false);
       setLocalError(null);
+      setSuccessAnimation(false);
     }
   }, [pendingApprovals, selectedId]);
 
@@ -83,10 +94,18 @@ export const ApproverPhone: React.FC<ApproverPhoneProps> = ({
   const handleAction = async (action: 'approve' | 'reject') => {
     if (!activeApproval) return;
     setLocalError(null);
-    if (action === 'approve' && !pickedNumber) {
-      setLocalError('Tap the matching 2-digit number shown on the requester screen first.');
-      return;
+
+    if (action === 'approve') {
+      if (!pickedNumber) {
+        setLocalError('Tap the matching 2-digit number shown on the requester screen first.');
+        return;
+      }
+      if (activeApproval.requires_peer_review && !peerReviewConfirmed) {
+        setLocalError('You must confirm out-of-band peer verification for Borderline requests.');
+        return;
+      }
     }
+
     try {
       await onDecide(activeApproval.approval_id, {
         reviewer_id: reviewerId,
@@ -95,237 +114,304 @@ export const ApproverPhone: React.FC<ApproverPhoneProps> = ({
         notes,
         peer_review_confirmed: peerReviewConfirmed,
       });
-      setPickedNumber('');
-      setNotes('');
-      setPeerReviewConfirmed(false);
+
+      if (action === 'approve') {
+        setSuccessAnimation(true);
+        setTimeout(() => {
+          setSuccessAnimation(false);
+          setPickedNumber('');
+          setNotes('');
+          setPeerReviewConfirmed(false);
+        }, 1200);
+      } else {
+        setPickedNumber('');
+        setNotes('');
+        setPeerReviewConfirmed(false);
+      }
     } catch (err) {
       setLocalError(err instanceof Error ? err.message : 'Approval action failed.');
     }
   };
 
-  return (
-    <div className={compact ? 'w-full' : 'max-w-[420px] mx-auto'}>
-      <div className="bg-[#0F172A] rounded-[28px] p-2.5 shadow-sm">
-        <div className="bg-white rounded-[20px] overflow-hidden border border-slate-200 flex flex-col">
-          {/* Phone Header */}
-          <div className="px-4 py-3.5 bg-[#F8FAFC] border-b border-slate-200 space-y-2.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-slate-900">Approver Device</span>
-              <span className="font-mono tabular-nums text-slate-500">
-                {pendingApprovals.length} pending
-              </span>
-            </div>
-
-            <div>
-              <label htmlFor="approver-identity" className="block text-[11px] text-slate-500 mb-1">
-                Signed-in Approver
-              </label>
-              <select
-                id="approver-identity"
-                value={reviewerId}
-                onChange={(e) => {
-                  setReviewerId(e.target.value);
-                  setLocalError(null);
-                }}
-                className="w-full h-9 px-2.5 text-xs font-medium bg-white border border-slate-300 rounded-md focus:outline-none focus:border-[#2563EB]"
-              >
-                {employees.map((emp) => (
-                  <option key={emp.employee_id} value={emp.employee_id}>
-                    {emp.display_name} ({emp.role})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Pending Queue Tabs if multiple */}
-          {pendingApprovals.length > 1 && (
-            <div className="px-3 py-2 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto bg-white">
-              {pendingApprovals.map((item) => (
-                <button
-                  key={item.approval_id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedId(item.approval_id);
-                    setPickedNumber('');
-                    setLocalError(null);
-                  }}
-                  className={`px-2.5 py-1 text-xs font-mono rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                    item.approval_id === activeApproval?.approval_id
-                      ? 'bg-[#0F172A] text-white'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  {item.request_id}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Body */}
-          {!activeApproval ? (
-            <div className="px-5 py-12 text-center space-y-2">
-              <ShieldCheck className="w-8 h-8 text-slate-300 mx-auto" />
-              <p className="text-sm font-medium text-slate-900">No Pending Break-Glass Approvals</p>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                When a requester completes voice verification with PASS or BORDERLINE, an action-bound 2-minute approval appears here.
-              </p>
-            </div>
-          ) : (
-            <div className="p-4 space-y-4">
-              {/* Countdown & Risk Summary */}
-              <div className="flex items-center justify-between text-xs pb-3 border-b border-slate-200">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-500">Voice</span>
-                  <span aria-hidden="true" className="text-slate-300">·</span>
-                  <span
-                    className={`font-mono font-bold ${
-                      activeApproval.voice_risk === 'PASS'
-                        ? 'text-[#15803D]'
-                        : 'text-[#B45309]'
-                    }`}
-                  >
-                    {activeApproval.voice_risk || 'REVIEW'}
-                  </span>
-                </div>
-                <div
-                  className={`inline-flex items-center gap-1 font-mono font-semibold tabular-nums ${
-                    remaining <= 30 ? 'text-[#B91C1C]' : 'text-slate-900'
-                  }`}
-                >
-                  <Clock className="w-3.5 h-3.5" />
-                  {remaining > 0 ? formatSeconds(remaining) : 'EXPIRED'}
-                </div>
-              </div>
-
-              {/* Exact Action Bound Details */}
-              <div className="space-y-2">
-                <div className="text-[11px] font-medium text-slate-500">Exact Requested Operation</div>
-                <div className="text-base font-semibold text-slate-900 leading-snug">
-                  {activeApproval.action_summary}
-                </div>
-                <div className="text-xs font-mono text-slate-600">
-                  Target: {activeApproval.target_resource}
-                </div>
-                <div className="text-xs text-slate-600 leading-relaxed">
-                  {activeApproval.justification}
-                </div>
-                <div className="pt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
-                  <span>Requester: {activeApproval.requester_name || activeApproval.requester_id}</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
-                    <PhoneCall className="w-3 h-3" />
-                    {activeApproval.known_callback_hint || 'Use known directory number'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Different-Person Guard Warning */}
-              {(isSamePerson || isNonApproverRole) && (
-                <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg text-xs text-[#B45309] flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>
-                    {isSamePerson
-                      ? 'Different-person rule active: switch to a different authorised approver (e.g. Priya or Carol) to decide this request.'
-                      : 'This employee does not hold an approver role. Backend will enforce authorisation.'}
-                  </span>
-                </div>
-              )}
-
-              {/* Borderline Escalation Peer Review */}
-              {activeApproval.requires_peer_review && (
-                <div className="p-3 bg-[#F8FAFC] border border-amber-300 rounded-lg space-y-2.5">
-                  <div className="text-xs font-semibold text-[#B45309]">
-                    Borderline Escalation — Peer Review Required
-                  </div>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    Voice scores were uncertain. Confirm out-of-band on a known directory number before approving.
-                  </p>
-                  <label className="flex items-start gap-2 text-xs text-slate-800 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={peerReviewConfirmed}
-                      onChange={(e) => setPeerReviewConfirmed(e.target.checked)}
-                      className="mt-0.5 rounded border-slate-300"
-                    />
-                    <span>I verified the requester independently on a known channel.</span>
-                  </label>
-                </div>
-              )}
-
-              {/* Number Matching Buttons */}
-              <div className="space-y-2">
-                <div className="text-xs font-medium text-slate-700">
-                  Tap the Matching Approval Number
-                </div>
-                <div className="grid grid-cols-3 gap-2.5">
-                  {activeApproval.number_options.map((num) => {
-                    const selected = pickedNumber === num;
-                    return (
-                      <button
-                        key={num}
-                        type="button"
-                        onClick={() => {
-                          setPickedNumber(num);
-                          setLocalError(null);
-                        }}
-                        className={`h-12 rounded-lg font-mono text-lg font-bold tabular-nums border transition-colors cursor-pointer ${
-                          selected
-                            ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                            : 'bg-white text-slate-900 border-slate-300 hover:bg-slate-50'
-                        }`}
-                      >
-                        {num}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Decision Notes */}
-              <div>
-                <label htmlFor="approver-notes" className="block text-[11px] font-medium text-slate-600 mb-1">
-                  Verification Notes {activeApproval.requires_peer_review ? '(required for borderline)' : '(optional)'}
-                </label>
-                <input
-                  id="approver-notes"
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. Confirmed INC-402 on Ext. 4102"
-                  className="w-full h-9 px-2.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:border-[#2563EB]"
-                />
-              </div>
-
-              {localError && (
-                <p className="text-xs font-medium text-[#B91C1C] leading-relaxed">{localError}</p>
-              )}
-
-              {/* Action Buttons */}
-              <div className="grid grid-cols-2 gap-2.5 pt-1">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => handleAction('reject')}
-                  className="inline-flex items-center justify-center gap-1.5 h-11 px-3 text-xs font-semibold text-[#B91C1C] bg-white border border-red-200 hover:bg-red-50 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
-                >
-                  <XCircle className="w-4 h-4" />
-                  Reject
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => handleAction('approve')}
-                  className="inline-flex items-center justify-center gap-1.5 h-11 px-3 text-xs font-semibold text-white bg-[#15803D] hover:bg-green-800 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  Approve Action
-                </button>
-              </div>
-            </div>
-          )}
+  const phoneContent = (
+    <div
+      data-testid="approver-phone"
+      className="relative w-full max-w-[390px] mx-auto rounded-[46px] p-3.5 bg-gradient-to-b from-slate-800 via-slate-900 to-slate-950 border-4 border-slate-700/80 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8),0_0_35px_rgba(6,182,212,0.15)] ring-1 ring-white/10 select-none overflow-hidden"
+    >
+      {/* Phone chassis top speaker / notch */}
+      <div className="absolute top-5 inset-x-0 flex justify-center z-30 pointer-events-none">
+        <div className="w-28 h-4 rounded-full bg-black/90 flex items-center justify-center gap-2 border border-white/10">
+          <div className="w-2.5 h-2.5 rounded-full bg-slate-900 border border-white/20" />
+          <div className="w-10 h-1.5 rounded-full bg-slate-900" />
         </div>
       </div>
+
+      {/* Internal Phone Screen */}
+      <div className="relative rounded-[36px] bg-[#070d1e] border border-white/10 overflow-hidden flex flex-col min-h-[620px] pt-8 pb-4 text-slate-100">
+        {/* Status Bar */}
+        <div className="px-5 pt-1 pb-3 flex items-center justify-between text-[11px] font-mono text-slate-400 border-b border-white/[0.06]">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-300">
+            <span>9:41</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span>5G SAFE-NET</span>
+          </div>
+        </div>
+
+        {/* Approver Header & Selector */}
+        <div className="px-4 py-3 bg-slate-950/60 border-b border-white/[0.06] space-y-2">
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="text-cyan-400 font-semibold tracking-wider uppercase text-[10px]">
+              APPROVER CONSOLE
+            </span>
+            <span className="text-slate-400 tabular-nums">
+              {pendingApprovals.length} pending
+            </span>
+          </div>
+
+          <div>
+            <label htmlFor="approver-identity" className="block text-[10px] font-mono text-slate-400 mb-1 uppercase tracking-wider">
+              Signed-in Approver Identity
+            </label>
+            <select
+              id="approver-identity"
+              data-testid="approver-identity-select"
+              value={reviewerId}
+              onChange={(e) => {
+                setReviewerId(e.target.value);
+                setLocalError(null);
+              }}
+              className="w-full h-8 px-2.5 text-xs font-mono bg-slate-900 border border-white/15 rounded-lg text-white focus:outline-none focus:border-cyan-400"
+            >
+              {employees.map((emp) => (
+                <option key={emp.employee_id} value={emp.employee_id} className="bg-slate-950">
+                  {emp.display_name} ({emp.role})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Multi-Request Switcher Tabs */}
+        {pendingApprovals.length > 1 && (
+          <div className="px-3 py-2 border-b border-white/[0.06] flex items-center gap-1.5 overflow-x-auto bg-slate-950/40">
+            {pendingApprovals.map((item) => (
+              <button
+                key={item.approval_id}
+                type="button"
+                onClick={() => {
+                  setSelectedId(item.approval_id);
+                  setPickedNumber('');
+                  setLocalError(null);
+                }}
+                className={`px-2.5 py-1 text-xs font-mono rounded-md transition-all whitespace-nowrap cursor-pointer ${
+                  item.approval_id === activeApproval?.approval_id
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                    : 'text-slate-400 hover:text-white bg-slate-900/60'
+                }`}
+              >
+                {item.request_id}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!activeApproval ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-3">
+            <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.15)]">
+              <ShieldCheck className="w-7 h-7" />
+            </div>
+            <p className="text-sm font-semibold text-white font-display">No Pending Requests</p>
+            <p className="text-xs text-slate-400 leading-relaxed max-w-xs">
+              When a requester completes voice verification with PASS or BORDERLINE, an action-bound 2-minute approval appears here.
+            </p>
+          </div>
+        ) : (
+          <div className="flex-1 p-4 space-y-4 overflow-y-auto">
+            {/* Top Bar: Risk badge + Countdown Ring */}
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">
+                  Voice Evidence
+                </span>
+                <StatusBadge status={activeApproval.voice_risk || 'REVIEW'} size="sm" />
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <span className="text-[10px] font-mono text-slate-400 block uppercase">Window</span>
+                  <span className={`text-xs font-mono font-bold ${remaining <= 30 ? 'text-rose-400 animate-pulse' : 'text-slate-200'}`}>
+                    {remaining > 0 ? `${remaining}s` : 'EXPIRED'}
+                  </span>
+                </div>
+                <CountdownRing remainingSeconds={remaining} totalSeconds={120} size={46} strokeWidth={4} />
+              </div>
+            </div>
+
+            {/* Exact Requested Operation (Action Binding) */}
+            <div className="p-3.5 rounded-xl bg-slate-950/70 border border-white/10 space-y-2">
+              <span className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider block font-semibold">
+                Bound Operation
+              </span>
+              <div className="text-sm font-bold text-white leading-snug">
+                {activeApproval.action_summary}
+              </div>
+              <div className="text-xs font-mono text-cyan-300/80 truncate">
+                Target: {activeApproval.target_resource}
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                {activeApproval.justification}
+              </p>
+              <div className="pt-2 border-t border-white/[0.06] flex flex-wrap items-center justify-between text-[11px] text-slate-400">
+                <span>By: <strong className="text-slate-200">{activeApproval.requester_name || activeApproval.requester_id}</strong></span>
+                <span className="inline-flex items-center gap-1 text-cyan-300 font-mono">
+                  <PhoneCall className="w-3 h-3" />
+                  {activeApproval.known_callback_hint || 'Verify directory'}
+                </span>
+              </div>
+            </div>
+
+            {/* Hard Security Warning: Different-Person Rule */}
+            {(isSamePerson || isNonApproverRole) && (
+              <div className="p-3 bg-amber-950/40 border border-amber-500/40 rounded-xl text-xs text-amber-300 flex items-start gap-2.5 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                <span className="leading-relaxed font-mono text-[11px]">
+                  {isSamePerson
+                    ? 'DIFFERENT-PERSON RULE: You cannot approve your own request. Switch identity to an independent approver (e.g. Priya or Carol).'
+                    : 'AUTHORIZATION ERROR: This identity lacks approver rights. Backend will reject.'}
+                </span>
+              </div>
+            )}
+
+            {/* Borderline Escalation Peer Review Banner */}
+            {activeApproval.requires_peer_review && (
+              <div className="p-3 bg-amber-950/30 border border-amber-500/40 rounded-xl space-y-2">
+                <div className="text-xs font-bold text-amber-400 font-mono flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  BORDERLINE ESCALATION · PEER REVIEW
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Voice score was inconclusive. You must independently contact the requester on a known corporate directory number.
+                </p>
+                <label className="flex items-start gap-2 text-xs text-slate-200 cursor-pointer pt-1 font-medium">
+                  <input
+                    type="checkbox"
+                    data-testid="peer-review-checkbox"
+                    checked={peerReviewConfirmed}
+                    onChange={(e) => setPeerReviewConfirmed(e.target.checked)}
+                    className="mt-0.5 rounded border-white/20 text-cyan-500 focus:ring-cyan-400"
+                  />
+                  <span>I independently verified requester on known directory channel.</span>
+                </label>
+              </div>
+            )}
+
+            {/* 3D Chunky Number Matching Keys */}
+            <div className="space-y-2">
+              <div className="text-[11px] font-mono text-cyan-400 uppercase tracking-wider font-semibold">
+                Tap The Matching 2-Digit Code
+              </div>
+              <div className="grid grid-cols-3 gap-2.5">
+                {activeApproval.number_options.map((num) => {
+                  const selected = pickedNumber === num;
+                  return (
+                    <button
+                      key={num}
+                      type="button"
+                      data-testid={`number-option-${num}`}
+                      onClick={() => {
+                        setPickedNumber(num);
+                        setLocalError(null);
+                      }}
+                      className={`h-14 rounded-2xl font-mono text-2xl font-black tabular-nums transition-all duration-150 cursor-pointer transform-gpu
+                        hover:-translate-y-0.5 active:translate-y-1 active:scale-95
+                        ${
+                          selected
+                            ? 'bg-gradient-to-tr from-cyan-500 to-blue-600 text-white shadow-[0_0_20px_rgba(6,182,212,0.5)] border-2 border-cyan-300 ring-2 ring-cyan-400/40'
+                            : 'bg-slate-900/90 text-slate-200 border border-white/15 hover:border-white/30 hover:bg-slate-800'
+                        }`}
+                    >
+                      {num}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Verification Notes */}
+            <div>
+              <label htmlFor="approver-notes" className="block text-[10px] font-mono text-slate-400 mb-1 uppercase tracking-wider">
+                Verification Notes {activeApproval.requires_peer_review ? '(required)' : '(optional)'}
+              </label>
+              <input
+                id="approver-notes"
+                data-testid="approver-notes-input"
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="e.g. Verified INC-402 on Ext. 4102"
+                className="w-full h-8 px-2.5 text-xs font-mono bg-slate-950/80 border border-white/10 rounded-lg text-white focus:outline-none focus:border-cyan-400"
+              />
+            </div>
+
+            {localError && (
+              <p className="p-2.5 rounded-lg bg-rose-950/40 border border-rose-500/40 text-xs text-rose-300 font-mono leading-relaxed">
+                {localError}
+              </p>
+            )}
+
+            {/* Success Overlay Confirmation */}
+            {successAnimation && (
+              <div className="p-3 bg-emerald-950/80 border border-emerald-500 rounded-xl text-center space-y-1 animate-pulse">
+                <CheckCircle2 className="w-6 h-6 text-emerald-400 mx-auto" />
+                <div className="text-xs font-bold font-mono text-emerald-300">
+                  DECISION RECORDED & CONSUMED
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              <PressableButton
+                type="button"
+                data-testid="reject-action-btn"
+                variant="rose"
+                size="md"
+                disabled={busy || remaining <= 0}
+                icon={XCircle}
+                onClick={() => handleAction('reject')}
+              >
+                Reject
+              </PressableButton>
+
+              <PressableButton
+                type="button"
+                data-testid="approve-action-btn"
+                variant="emerald"
+                size="md"
+                disabled={busy || remaining <= 0 || isSamePerson}
+                icon={ShieldCheck}
+                onClick={() => handleAction('approve')}
+                glow
+              >
+                Approve
+              </PressableButton>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
+  );
+
+  if (compact) {
+    return <Tilt3D maxTilt={5}>{phoneContent}</Tilt3D>;
+  }
+
+  return (
+    <Float duration={5} distance={6}>
+      <Tilt3D maxTilt={6}>{phoneContent}</Tilt3D>
+    </Float>
   );
 };
