@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, Square, Upload, Play, RotateCcw, FileAudio } from 'lucide-react';
+import { Mic, Square, Upload, Play, RotateCcw, FileAudio, CheckCircle2 } from 'lucide-react';
+import { PressableButton } from './ui/PressableButton';
 
 interface AudioRecorderProps {
   onAudioReady: (file: File, durationSeconds: number) => void;
@@ -114,7 +115,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       const { width, height } = canvas;
       ctx.clearRect(0, 0, width, height);
 
-      const barCount = 44;
+      const barCount = 48;
       const step = Math.max(1, Math.floor(bufferLength / barCount));
       const barWidth = width / barCount;
 
@@ -123,8 +124,16 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         const barHeight = Math.max(4, value * (height - 8));
         const x = i * barWidth + 2;
         const y = (height - barHeight) / 2;
-        ctx.fillStyle = value > 0.15 ? '#0F172A' : '#CBD5E1';
-        ctx.fillRect(x, y, Math.max(2, barWidth - 4), barHeight);
+
+        if (value > 0.15) {
+          ctx.fillStyle = '#38bdf8'; // bright cyan
+          ctx.shadowColor = '#06b6d4';
+          ctx.shadowBlur = 6;
+        } else {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+          ctx.shadowBlur = 0;
+        }
+        ctx.fillRect(x, y, Math.max(2, barWidth - 3), barHeight);
       }
 
       animFrameRef.current = requestAnimationFrame(render);
@@ -252,65 +261,103 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     return `${String(mins).padStart(2, '0')}:${rem.toFixed(1).padStart(4, '0')}`;
   };
 
+  const currentDuration = isRecording ? elapsed : recordedDuration;
+  const isTargetMet = currentDuration >= targetMinSeconds;
+  const progressPercent = Math.min(100, (currentDuration / targetMinSeconds) * 100);
+
   return (
-    <div className="space-y-4">
-      <div className="bg-[#F8FAFC] border border-slate-200 rounded-lg p-4">
-        <div className="flex items-center justify-between gap-4 mb-3">
-          <div className="flex items-center gap-2 text-xs text-slate-600">
-            <span className="font-medium text-slate-900">
-              {isRecording
-                ? 'Recording microphone input'
-                : recordedFile
-                  ? recordedFile.name
-                  : 'Ready to record voice challenge'}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>Target {targetMinSeconds}s–60s</span>
+    <div data-testid="audio-recorder" className="space-y-4">
+      <div className="bg-slate-900/80 border border-white/10 rounded-2xl p-5 shadow-xl backdrop-blur-xl space-y-4">
+        {/* Status Bar */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5 text-xs">
+            {isRecording ? (
+              <span className="flex items-center gap-2 text-rose-400 font-mono font-semibold animate-pulse">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_10px_#f43f5e]" />
+                RECORDING MICROPHONE
+              </span>
+            ) : recordedFile ? (
+              <span className="flex items-center gap-2 text-emerald-400 font-mono font-medium truncate max-w-[200px]">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                {recordedFile.name}
+              </span>
+            ) : (
+              <span className="text-slate-400 font-medium">Ready to record challenge phrase</span>
+            )}
+            <span aria-hidden="true" className="text-slate-700">·</span>
+            <span className="text-slate-400 text-[11px] font-mono">Min {targetMinSeconds}s required</span>
           </div>
-          <span className="font-mono text-sm font-semibold tabular-nums text-slate-900">
-            {isRecording ? formatDuration(elapsed) : formatDuration(recordedDuration)}
+
+          <span
+            data-testid="recorder-timer"
+            className="font-mono text-base font-bold tabular-nums text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]"
+          >
+            {formatDuration(currentDuration)}
           </span>
         </div>
 
-        <canvas
-          ref={canvasRef}
-          width={560}
-          height={52}
-          className="w-full h-[52px] rounded bg-white border border-slate-200/80"
-        />
+        {/* Minimum Duration Indicator Bar */}
+        <div className="space-y-1">
+          <div className="h-1.5 w-full bg-slate-950/80 rounded-full overflow-hidden border border-white/5">
+            <div
+              className={`h-full transition-all duration-150 ${
+                isTargetMet ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-cyan-400'
+              }`}
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[10px] font-mono text-slate-500">
+            <span>0s</span>
+            <span>{targetMinSeconds}s target threshold {isTargetMet && '✓'}</span>
+          </div>
+        </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
-          <div className="flex flex-wrap items-center gap-2">
+        {/* Live Audio Visualizer Canvas */}
+        <div className="relative rounded-xl overflow-hidden bg-slate-950/90 border border-white/5 p-2">
+          <canvas
+            ref={canvasRef}
+            width={580}
+            height={56}
+            className="w-full h-[56px] rounded-lg"
+          />
+        </div>
+
+        {/* Control Buttons */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <div className="flex flex-wrap items-center gap-2.5">
             {!isRecording ? (
-              <button
+              <PressableButton
                 type="button"
+                data-testid="start-record-btn"
+                variant="primary"
                 onClick={startRecording}
                 disabled={disabled}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                icon={Mic}
               >
-                <Mic className="w-4 h-4" />
                 Start Recording
-              </button>
+              </PressableButton>
             ) : (
-              <button
+              <PressableButton
                 type="button"
+                data-testid="stop-record-btn"
+                variant="rose"
                 onClick={stopRecording}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#B91C1C] hover:bg-red-800 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                icon={Square}
               >
-                <Square className="w-3.5 h-3.5 fill-current" />
                 Stop Recording
-              </button>
+              </PressableButton>
             )}
 
-            <button
+            <PressableButton
               type="button"
+              variant="secondary"
+              size="sm"
+              icon={Upload}
               onClick={() => fileInputRef.current?.click()}
               disabled={disabled || isRecording}
-              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <Upload className="w-4 h-4" />
-              Upload Clip
-            </button>
+              Upload Audio
+            </PressableButton>
             <input
               ref={fileInputRef}
               type="file"
@@ -319,15 +366,16 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               className="hidden"
             />
 
-            <button
+            <PressableButton
               type="button"
+              variant="ghost"
+              size="sm"
+              icon={FileAudio}
               onClick={useSampleClip}
               disabled={disabled || isRecording}
-              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 bg-transparent hover:bg-slate-100 disabled:opacity-50 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <FileAudio className="w-4 h-4" />
-              Use Demo Sample
-            </button>
+              Demo Sample
+            </PressableButton>
           </div>
 
           {recordedFile && !isRecording && (
@@ -335,32 +383,37 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               type="button"
               onClick={resetClip}
               disabled={disabled}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-1.5 text-xs font-mono text-slate-400 hover:text-white transition-colors cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              Clear
+              Reset
             </button>
           )}
         </div>
 
         {micError && (
-          <p className="mt-3 text-xs text-[#B45309] leading-relaxed">{micError}</p>
+          <p className="p-3 rounded-lg bg-amber-950/30 border border-amber-500/30 text-xs text-amber-300 leading-relaxed font-mono">
+            {micError}
+          </p>
         )}
 
+        {/* Playback & Submit Section */}
         {recordedUrl && recordedFile && !isRecording && (
-          <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="pt-4 border-t border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <Play className="w-4 h-4 text-slate-500 shrink-0" />
-              <audio src={recordedUrl} controls className="h-8 max-w-[260px]" />
+              <Play className="w-4 h-4 text-cyan-400 shrink-0" />
+              <audio src={recordedUrl} controls className="h-8 max-w-[280px] rounded" />
             </div>
-            <button
+            <PressableButton
               type="button"
+              data-testid="submit-audio-btn"
+              variant="emerald"
               onClick={() => onAudioReady(recordedFile, recordedDuration)}
               disabled={disabled}
-              className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              glow
             >
               {actionLabel}
-            </button>
+            </PressableButton>
           </div>
         )}
       </div>

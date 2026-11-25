@@ -1,8 +1,28 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, CheckCircle2, AlertTriangle, ShieldAlert, Play, Smartphone } from 'lucide-react';
+import {
+  RefreshCw,
+  CheckCircle2,
+  AlertTriangle,
+  ShieldAlert,
+  Play,
+  Smartphone,
+  Shield,
+  Activity,
+  KeyRound,
+  FileCheck2,
+  Lock,
+} from 'lucide-react';
 import type { BreakGlassRequest, Employee, MockExecutionReceipt } from '../types';
 import { PRESET_OPERATIONS } from '../lib/voiceGateEngine';
 import { AudioRecorder } from './AudioRecorder';
+import { VaultGate3D } from './3d/VaultGate3D';
+import type { GateVisualState } from './3d/FallbackGate';
+import { GlassCard } from './ui/GlassCard';
+import { Tilt3D } from './ui/Tilt3D';
+import { Float } from './ui/Float';
+import { PressableButton } from './ui/PressableButton';
+import { StatusBadge } from './ui/StatusBadge';
+import { CountdownRing } from './ui/CountdownRing';
 
 interface RequesterConsoleProps {
   employees: Employee[];
@@ -23,11 +43,13 @@ interface RequesterConsoleProps {
   onStartNew: () => void;
 }
 
-function formatCountdown(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-}
+const STAGES = [
+  { id: 'request', label: '1. Request', desc: 'Action Bound' },
+  { id: 'challenge', label: '2. Challenge', desc: 'Random Phrase' },
+  { id: 'voice', label: '3. Voice Gate', desc: 'Neural Check' },
+  { id: 'approval', label: '4. 2nd Device', desc: 'Number Match' },
+  { id: 'execution', label: '5. Execution', desc: 'Simulated' },
+];
 
 export const RequesterConsole: React.FC<RequesterConsoleProps> = ({
   employees,
@@ -47,6 +69,7 @@ export const RequesterConsole: React.FC<RequesterConsoleProps> = ({
   const [targetResource, setTargetResource] = useState(PRESET_OPERATIONS[0].target_resource);
   const [justification, setJustification] = useState(PRESET_OPERATIONS[0].justification);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [phraseFlipped, setPhraseFlipped] = useState(false);
 
   useEffect(() => {
     if (employees.length > 0 && !employees.some((e) => e.employee_id === employeeId)) {
@@ -79,131 +102,182 @@ export const RequesterConsole: React.FC<RequesterConsoleProps> = ({
     });
   };
 
+  const handleRefreshPhrase = async (reqId: string) => {
+    setPhraseFlipped(true);
+    setTimeout(() => setPhraseFlipped(false), 500);
+    await onRefreshChallenge(reqId);
+  };
+
+  // Determine gate visual state
+  const getGateState = (): GateVisualState => {
+    if (busy) return 'analyzing';
+    if (!activeRequest) return 'idle';
+    if (activeRequest.status === 'EXECUTED') return 'EXECUTED';
+    if (activeRequest.status === 'BLOCKED') return 'FAIL';
+    if (activeRequest.voice_result?.risk === 'FAIL') return 'FAIL';
+    if (activeRequest.voice_result?.risk === 'BORDERLINE') return 'BORDERLINE';
+    if (activeRequest.voice_result?.risk === 'PASS') return 'PASS';
+    return 'idle';
+  };
+
+  // Determine current timeline stage index
+  const getActiveStageIndex = (): number => {
+    if (!activeRequest) return 0;
+    if (activeRequest.status === 'EXECUTED') return 4;
+    if (activeRequest.status === 'APPROVED') return 4;
+    if (activeRequest.active_approval) return 3;
+    if (activeRequest.voice_result) return 2;
+    if (activeRequest.challenge_phrase) return 1;
+    return 0;
+  };
+
+  const stageIdx = getActiveStageIndex();
+
   if (!activeRequest) {
     return (
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-200">
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-            Initiate Break-Glass Request
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Bind an emergency operation to live voice verification and an independent second-device approval.
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmitCreate} className="p-6 space-y-6">
-          <div>
-            <p className="text-xs font-medium text-slate-500 mb-2.5">Common Emergency Presets</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {PRESET_OPERATIONS.map((preset) => {
-                const selected = actionSummary === preset.action_summary;
-                return (
-                  <button
-                    key={preset.action_summary}
-                    type="button"
-                    onClick={() => {
-                      setActionSummary(preset.action_summary);
-                      setTargetResource(preset.target_resource);
-                      setJustification(preset.justification);
-                    }}
-                    className={`text-left px-3.5 py-2.5 rounded-lg border transition-colors cursor-pointer ${
-                      selected
-                        ? 'border-[#2563EB] bg-blue-50/40 text-slate-900'
-                        : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
-                    }`}
-                  >
-                    <div className="text-sm font-medium truncate">{preset.action_summary}</div>
-                    <div className="text-xs text-slate-500 font-mono truncate mt-0.5">
-                      {preset.target_resource}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+      <div data-testid="requester-console" className="space-y-6">
+        {/* Hero 3D Gate in Idle state */}
+        <GlassCard className="p-6 text-center overflow-hidden">
+          <VaultGate3D state="idle" />
+          <div className="max-w-md mx-auto -mt-2 space-y-2">
+            <h1 className="text-2xl font-bold tracking-tight text-white font-display">
+              Initiate Break-Glass Request
+            </h1>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Bind an emergency operation to cryptographic challenge-response, neural deepfake inspection, and an independent second-device approval.
+            </p>
           </div>
+        </GlassCard>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Request Form */}
+        <GlassCard className="p-6 sm:p-8 space-y-6">
+          <form onSubmit={handleSubmitCreate} data-testid="create-request-form" className="space-y-6">
             <div>
-              <label htmlFor="requester-select" className="block text-xs font-medium text-slate-700 mb-1.5">
-                Requesting Employee
-              </label>
-              <select
-                id="requester-select"
-                value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value)}
-                className="w-full h-10 px-3 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30 focus:border-[#2563EB]"
-              >
-                {employees.map((emp) => (
-                  <option key={emp.employee_id} value={emp.employee_id}>
-                    {emp.display_name} ({emp.employee_id})
-                  </option>
-                ))}
-              </select>
+              <p className="text-xs font-mono uppercase tracking-wider text-cyan-400 mb-3 flex items-center gap-2">
+                <KeyRound className="w-4 h-4" />
+                Emergency Operations Presets
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {PRESET_OPERATIONS.map((preset, idx) => {
+                  const selected = actionSummary === preset.action_summary;
+                  return (
+                    <button
+                      key={preset.action_summary}
+                      type="button"
+                      data-testid={`preset-btn-${idx}`}
+                      onClick={() => {
+                        setActionSummary(preset.action_summary);
+                        setTargetResource(preset.target_resource);
+                        setJustification(preset.justification);
+                      }}
+                      className={`text-left p-3.5 rounded-xl border transition-all cursor-pointer ${
+                        selected
+                          ? 'border-cyan-400 bg-cyan-500/15 shadow-[0_0_15px_rgba(6,182,212,0.25)] text-white'
+                          : 'border-white/10 hover:border-white/20 bg-slate-900/40 text-slate-300'
+                      }`}
+                    >
+                      <div className="text-sm font-semibold truncate">{preset.action_summary}</div>
+                      <div className="text-xs text-cyan-400/80 font-mono truncate mt-0.5">
+                        {preset.target_resource}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="requester-select" className="block text-xs font-medium text-slate-300 mb-1.5 font-mono">
+                  Requesting Identity
+                </label>
+                <select
+                  id="requester-select"
+                  data-testid="requester-select"
+                  value={employeeId}
+                  onChange={(e) => setEmployeeId(e.target.value)}
+                  className="w-full h-10 px-3 text-sm bg-slate-950/80 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-400"
+                >
+                  {employees.map((emp) => (
+                    <option key={emp.employee_id} value={emp.employee_id} className="bg-slate-900">
+                      {emp.display_name} ({emp.employee_id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="target-resource" className="block text-xs font-medium text-slate-300 mb-1.5 font-mono">
+                  Target Production Resource
+                </label>
+                <input
+                  id="target-resource"
+                  data-testid="target-resource-input"
+                  type="text"
+                  required
+                  minLength={2}
+                  value={targetResource}
+                  onChange={(e) => setTargetResource(e.target.value)}
+                  className="w-full h-10 px-3 text-sm font-mono bg-slate-950/80 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-400"
+                />
+              </div>
             </div>
 
             <div>
-              <label htmlFor="target-resource" className="block text-xs font-medium text-slate-700 mb-1.5">
-                Target Production Resource
+              <label htmlFor="action-summary" className="block text-xs font-medium text-slate-300 mb-1.5 font-mono">
+                Exact Emergency Action
               </label>
               <input
-                id="target-resource"
+                id="action-summary"
+                data-testid="action-summary-input"
                 type="text"
                 required
-                minLength={2}
-                value={targetResource}
-                onChange={(e) => setTargetResource(e.target.value)}
-                className="w-full h-10 px-3 text-sm font-mono bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30 focus:border-[#2563EB]"
+                minLength={3}
+                value={actionSummary}
+                onChange={(e) => setActionSummary(e.target.value)}
+                className="w-full h-10 px-3 text-sm bg-slate-950/80 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-400"
               />
             </div>
-          </div>
 
-          <div>
-            <label htmlFor="action-summary" className="block text-xs font-medium text-slate-700 mb-1.5">
-              Exact Emergency Action
-            </label>
-            <input
-              id="action-summary"
-              type="text"
-              required
-              minLength={3}
-              value={actionSummary}
-              onChange={(e) => setActionSummary(e.target.value)}
-              className="w-full h-10 px-3 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30 focus:border-[#2563EB]"
-            />
-          </div>
+            <div>
+              <label htmlFor="justification" className="block text-xs font-medium text-slate-300 mb-1.5 font-mono">
+                Incident Justification
+              </label>
+              <textarea
+                id="justification"
+                data-testid="justification-input"
+                required
+                minLength={5}
+                rows={3}
+                value={justification}
+                onChange={(e) => setJustification(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-slate-950/80 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-400"
+              />
+            </div>
 
-          <div>
-            <label htmlFor="justification" className="block text-xs font-medium text-slate-700 mb-1.5">
-              Incident Justification
-            </label>
-            <textarea
-              id="justification"
-              required
-              minLength={5}
-              rows={3}
-              value={justification}
-              onChange={(e) => setJustification(e.target.value)}
-              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30 focus:border-[#2563EB]"
-            />
-          </div>
+            {errorMessage && (
+              <p className="text-xs font-mono text-rose-400 p-3 rounded-lg bg-rose-950/30 border border-rose-500/30">
+                {errorMessage}
+              </p>
+            )}
 
-          {errorMessage && (
-            <p className="text-sm text-[#B91C1C] font-medium">{errorMessage}</p>
-          )}
-
-          <div className="pt-2 flex items-center justify-between gap-4 border-t border-slate-200">
-            <p className="text-xs text-slate-500">
-              All operations are simulated and locked until voice checks and second-device approval pass.
-            </p>
-            <button
-              type="submit"
-              disabled={busy}
-              className="px-5 py-2.5 text-sm font-medium text-white bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              {busy ? 'Creating Request...' : 'Generate Voice Challenge'}
-            </button>
-          </div>
-        </form>
+            <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-white/[0.08]">
+              <span className="text-xs text-slate-400 font-mono">
+                Simulated execution · Strictly fail-closed
+              </span>
+              <PressableButton
+                type="submit"
+                data-testid="submit-create-request"
+                variant="primary"
+                loading={busy}
+                size="lg"
+                glow
+              >
+                Generate Voice Challenge
+              </PressableButton>
+            </div>
+          </form>
+        </GlassCard>
       </div>
     );
   }
@@ -213,104 +287,143 @@ export const RequesterConsole: React.FC<RequesterConsoleProps> = ({
   const isApprovalExpired =
     approval !== null && (approval.status === 'EXPIRED' || (approval.status === 'PENDING' && secondsLeft === 0));
 
-  const riskColor =
-    voice?.risk === 'PASS'
-      ? 'text-[#15803D]'
-      : voice?.risk === 'FAIL'
-        ? 'text-[#B91C1C]'
-        : 'text-[#B45309]';
-
-  const statusColor =
-    activeRequest.status === 'EXECUTED' || activeRequest.status === 'APPROVED'
-      ? 'text-[#15803D]'
-      : activeRequest.status === 'BLOCKED' || activeRequest.status === 'REJECTED'
-        ? 'text-[#B91C1C]'
-        : activeRequest.status === 'ESCALATED_REVIEW'
-          ? 'text-[#B45309]'
-          : 'text-slate-900';
-
   const canRecordVoice =
     activeRequest.status === 'PENDING_VOICE' ||
     activeRequest.status === 'ESCALATED_REVIEW' ||
     activeRequest.status === 'PENDING_APPROVAL';
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-200">
-      {/* Bound Action Summary */}
-      <div className="p-6">
+    <div data-testid="requester-console" className="space-y-6">
+      {/* 5-Stage Stepper / Timeline */}
+      <GlassCard className="p-4 sm:p-5">
+        <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1">
+          {STAGES.map((s, idx) => {
+            const isDone = idx < stageIdx;
+            const isCurrent = idx === stageIdx;
+            const isBlocked = activeRequest.status === 'BLOCKED' && idx >= 2;
+
+            return (
+              <div key={s.id} className="flex items-center gap-2 flex-1 min-w-[100px]">
+                <div className="flex flex-col items-center flex-1 text-center">
+                  <div
+                    className={`w-7 h-7 rounded-full flex items-center justify-center font-mono text-xs font-bold transition-all duration-300 ${
+                      isBlocked
+                        ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-[0_0_10px_#f43f5e]'
+                        : isDone
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_10px_#34d399]'
+                          : isCurrent
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400 shadow-[0_0_12px_#38bdf8] animate-pulse'
+                            : 'bg-slate-800/60 text-slate-500 border border-white/5'
+                    }`}
+                  >
+                    {isDone ? '✓' : idx + 1}
+                  </div>
+                  <span className={`text-[11px] font-mono mt-1 font-semibold truncate ${isCurrent ? 'text-cyan-300' : isDone ? 'text-slate-200' : 'text-slate-500'}`}>
+                    {s.label}
+                  </span>
+                </div>
+                {idx < STAGES.length - 1 && (
+                  <div className={`h-[2px] flex-1 -mt-4 transition-colors ${idx < stageIdx ? 'bg-emerald-500/60' : 'bg-slate-800'}`} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </GlassCard>
+
+      {/* Hero 3D Gate displaying dynamic live state */}
+      <GlassCard className="p-6 relative overflow-hidden">
+        <VaultGate3D state={getGateState()} />
+      </GlassCard>
+
+      {/* Bound Action Summary Header */}
+      <GlassCard className="p-6 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-              <span className="font-mono text-slate-700">{activeRequest.request_id}</span>
-              <span aria-hidden="true">·</span>
-              <span>{activeRequest.employee_name || activeRequest.employee_id}</span>
-              <span aria-hidden="true">·</span>
-              <span className={`font-semibold ${statusColor}`}>
-                {activeRequest.status.replace(/_/g, ' ')}
-              </span>
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-mono text-cyan-400">{activeRequest.request_id}</span>
+              <span aria-hidden="true" className="text-slate-600">·</span>
+              <span className="text-slate-300">{activeRequest.employee_name || activeRequest.employee_id}</span>
+              <span aria-hidden="true" className="text-slate-600">·</span>
+              <StatusBadge status={activeRequest.status} />
             </div>
-            <h1 className="mt-1.5 text-xl font-semibold tracking-tight text-slate-900">
+            <h1 className="text-xl font-bold tracking-tight text-white font-display">
               {activeRequest.action_summary}
             </h1>
-            <p className="mt-1 text-sm text-slate-600">{activeRequest.justification}</p>
+            <p className="text-xs text-slate-400 leading-relaxed">{activeRequest.justification}</p>
           </div>
-          <button
+
+          <PressableButton
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={onStartNew}
-            className="px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
-            New Request
-          </button>
+            Start New Request
+          </PressableButton>
         </div>
 
-        <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+        <div className="pt-4 border-t border-white/[0.08] grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-mono">
           <div>
             <div className="text-slate-500">Target Resource</div>
-            <div className="mt-0.5 font-mono font-medium text-slate-900 truncate">
-              {activeRequest.target_resource}
-            </div>
+            <div className="text-cyan-300 font-semibold truncate mt-0.5">{activeRequest.target_resource}</div>
           </div>
           <div>
-            <div className="text-slate-500">Action Binding Hash (SHA-256)</div>
-            <div className="mt-0.5 font-mono text-slate-700 truncate" title={activeRequest.action_hash}>
-              {activeRequest.action_hash.slice(0, 20)}...
+            <div className="text-slate-500">Action Hash (SHA-256)</div>
+            <div className="text-slate-400 truncate mt-0.5" title={activeRequest.action_hash}>
+              {activeRequest.action_hash.slice(0, 18)}...
             </div>
           </div>
           <div>
             <div className="text-slate-500">Known Callback Channel</div>
-            <div className="mt-0.5 font-medium text-slate-900">
+            <div className="text-slate-300 font-medium mt-0.5">
               {activeRequest.known_callback_hint || 'Directory lookup required'}
             </div>
           </div>
         </div>
-      </div>
+      </GlassCard>
 
-      {/* Step 1: Random Spoken Challenge & Voice Capture */}
+      {/* Step 1: Random Spoken Challenge with Flip Animation */}
       {canRecordVoice && (
-        <div className="p-6 space-y-4">
+        <GlassCard className="p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-slate-900">
-                01. Spoken Liveness Challenge
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Read the full phrase aloud clearly so DetectifAI Aletheia and Eidos evaluate the same recording.
+              <div className="text-xs font-mono uppercase tracking-wider text-cyan-400 font-semibold">
+                Stage 01 · Spoken Liveness Challenge
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Read the phrase aloud clearly. DetectifAI Aletheia and Eidos evaluate the same recording.
               </p>
             </div>
-            <button
+            <PressableButton
               type="button"
-              onClick={() => onRefreshChallenge(activeRequest.request_id)}
+              data-testid="refresh-challenge-btn"
+              variant="secondary"
+              size="sm"
+              icon={RefreshCw}
+              onClick={() => handleRefreshPhrase(activeRequest.request_id)}
               disabled={busy}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-300 hover:bg-slate-50 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
               New Phrase
-            </button>
+            </PressableButton>
           </div>
 
-          <blockquote className="p-4 bg-[#F8FAFC] border border-slate-200 rounded-lg text-[15px] leading-relaxed font-medium text-slate-900">
-            “{activeRequest.challenge_phrase}”
-          </blockquote>
+          <Tilt3D>
+            <div
+              data-testid="challenge-phrase-card"
+              className={`p-6 rounded-2xl bg-gradient-to-br from-slate-900/90 via-slate-950/90 to-cyan-950/20 border border-cyan-500/30 shadow-[0_0_25px_rgba(6,182,212,0.15)] transition-transform duration-500 ${
+                phraseFlipped ? 'rotate-x-180 scale-95 opacity-50' : 'rotate-x-0 scale-100 opacity-100'
+              }`}
+            >
+              <div className="text-xs font-mono text-cyan-400 uppercase tracking-widest mb-2 flex items-center justify-between">
+                <span>Spoken Challenge Phrase</span>
+                <span className="text-[10px] text-slate-500">Non-reusable</span>
+              </div>
+              <blockquote className="text-lg sm:text-xl font-display font-semibold text-white leading-relaxed tracking-wide">
+                “{activeRequest.challenge_phrase}”
+              </blockquote>
+            </div>
+          </Tilt3D>
 
           <AudioRecorder
             disabled={busy}
@@ -318,269 +431,312 @@ export const RequesterConsole: React.FC<RequesterConsoleProps> = ({
             actionLabel={busy ? 'Running DetectifAI Checks...' : 'Verify Voice with Aletheia + Eidos'}
             onAudioReady={(file, duration) => onVerifyVoice(activeRequest.request_id, file, duration)}
           />
-        </div>
+        </GlassCard>
       )}
 
-      {/* Step 2: Voice Evidence (Aletheia + Eidos) */}
+      {/* Step 2: 3D Gauge / Orb Cards for Aletheia + Eidos */}
       {voice && (
-        <div className="p-6 space-y-4">
+        <GlassCard className="p-6 space-y-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-sm font-semibold text-slate-900">
-              02. Voice Verification Evidence
-            </h2>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-slate-500">Policy Risk</span>
-              <span aria-hidden="true" className="text-slate-300">·</span>
-              <span className={`font-mono font-bold ${riskColor}`}>{voice.risk}</span>
-              <span aria-hidden="true" className="text-slate-300">·</span>
-              <span className="text-slate-500 tabular-nums">Attempt {activeRequest.voice_attempts}</span>
+            <div>
+              <div className="text-xs font-mono uppercase tracking-wider text-cyan-400 font-semibold">
+                Stage 02 · Voice Verification Evidence
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">A score is evidence, not proof.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400">Policy Verdict:</span>
+              <StatusBadge status={voice.risk} size="lg" />
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Aletheia */}
-            <div className="p-4 bg-[#F8FAFC] border border-slate-200 rounded-lg space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-900">
-                  Aletheia Deepfake Check
-                </span>
-                <span
-                  className={`font-mono text-xs font-semibold ${
-                    voice.aletheia?.verdict === 'real'
-                      ? 'text-[#15803D]'
-                      : voice.aletheia?.verdict === 'fake'
-                        ? 'text-[#B91C1C]'
-                        : 'text-[#B45309]'
-                  }`}
-                >
-                  {voice.aletheia ? voice.aletheia.verdict.toUpperCase() : 'UNAVAILABLE'}
-                </span>
-              </div>
-              {voice.aletheia ? (
-                <>
-                  <div className="flex items-baseline justify-between text-xs text-slate-600">
-                    <span>Synthetic Indicator Score</span>
-                    <span className="font-mono text-base font-semibold tabular-nums text-slate-900">
-                      {voice.aletheia.score.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all ${
-                        voice.aletheia.verdict === 'fake'
-                          ? 'bg-[#B91C1C]'
-                          : voice.aletheia.score >= 0.4
-                            ? 'bg-[#B45309]'
-                            : 'bg-[#15803D]'
-                      }`}
-                      style={{ width: `${Math.min(100, Math.max(4, voice.aletheia.score * 100))}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 tabular-nums">
-                    <span>{voice.aletheia.duration_seconds.toFixed(1)}s audio</span>
-                    <span>{voice.aletheia.operation_id}</span>
-                  </div>
-                </>
-              ) : (
-                <p className="text-xs text-slate-600">
-                  Model returned no usable score — failed closed to require review.
-                </p>
-              )}
-            </div>
+            {/* Aletheia Gauge Card */}
+            <Tilt3D>
+              <div
+                data-testid="aletheia-card"
+                className="p-5 rounded-2xl bg-slate-950/80 border border-white/10 hover:border-cyan-500/30 transition-all space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono text-slate-300 font-semibold">
+                    Aletheia Deepfake Check
+                  </span>
+                  <StatusBadge
+                    status={
+                      voice.aletheia?.verdict === 'real'
+                        ? 'PASS'
+                        : voice.aletheia?.verdict === 'fake'
+                          ? 'FAIL'
+                          : 'BORDERLINE'
+                    }
+                    label={voice.aletheia ? voice.aletheia.verdict.toUpperCase() : 'UNAVAILABLE'}
+                    size="sm"
+                  />
+                </div>
 
-            {/* Eidos */}
-            <div className="p-4 bg-[#F8FAFC] border border-slate-200 rounded-lg space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-900">
-                  Eidos Speaker Identity
-                </span>
-                <span
-                  className={`font-mono text-xs font-semibold ${
-                    voice.eidos?.decision === 'match'
-                      ? 'text-[#15803D]'
-                      : voice.eidos?.decision === 'no_match'
-                        ? 'text-[#B91C1C]'
-                        : 'text-[#B45309]'
-                  }`}
-                >
-                  {voice.eidos ? voice.eidos.decision.toUpperCase() : 'UNAVAILABLE'}
-                </span>
+                {voice.aletheia ? (
+                  <>
+                    <div className="flex items-baseline justify-between text-xs font-mono">
+                      <span className="text-slate-400">Synthetic Indicator Score</span>
+                      <span className="text-xl font-bold text-white tabular-nums">
+                        {voice.aletheia.score.toFixed(2)}
+                      </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden border border-white/5">
+                      <div
+                        className={`h-full transition-all duration-500 ${
+                          voice.aletheia.verdict === 'fake'
+                            ? 'bg-rose-500 shadow-[0_0_8px_#f43f5e]'
+                            : voice.aletheia.score >= 0.4
+                              ? 'bg-amber-500 shadow-[0_0_8px_#f59e0b]'
+                              : 'bg-emerald-500 shadow-[0_0_8px_#10b981]'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(5, voice.aletheia.score * 100))}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 pt-1">
+                      <span>{voice.aletheia.duration_seconds.toFixed(1)}s sample</span>
+                      <span className="truncate max-w-[140px]" title={voice.aletheia.operation_id}>
+                        {voice.aletheia.operation_id}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-amber-300/80 font-mono">
+                    Model signal missing — failed closed.
+                  </p>
+                )}
               </div>
-              {voice.eidos ? (
-                <>
-                  <div className="flex items-baseline justify-between text-xs text-slate-600">
-                    <span>Speaker Similarity</span>
-                    <span className="font-mono text-base font-semibold tabular-nums text-slate-900">
-                      {voice.eidos.similarity.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all ${
-                        voice.eidos.decision === 'match' ? 'bg-[#15803D]' : 'bg-[#B91C1C]'
-                      }`}
-                      style={{
-                        width: `${Math.min(100, Math.max(4, ((voice.eidos.similarity + 1) / 2) * 100))}%`,
-                      }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 tabular-nums">
-                    <span>{voice.eidos.duration_seconds.toFixed(1)}s audio</span>
-                    <span>{voice.eidos.operation_id}</span>
-                  </div>
-                </>
-              ) : (
-                <p className="text-xs text-slate-600">
-                  Speaker check unavailable — failed closed until verified.
-                </p>
-              )}
-            </div>
+            </Tilt3D>
+
+            {/* Eidos Gauge Card */}
+            <Tilt3D>
+              <div
+                data-testid="eidos-card"
+                className="p-5 rounded-2xl bg-slate-950/80 border border-white/10 hover:border-cyan-500/30 transition-all space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono text-slate-300 font-semibold">
+                    Eidos Speaker Match
+                  </span>
+                  <StatusBadge
+                    status={
+                      voice.eidos?.decision === 'match'
+                        ? 'PASS'
+                        : voice.eidos?.decision === 'no_match'
+                          ? 'FAIL'
+                          : 'BORDERLINE'
+                    }
+                    label={voice.eidos ? voice.eidos.decision.toUpperCase() : 'UNAVAILABLE'}
+                    size="sm"
+                  />
+                </div>
+
+                {voice.eidos ? (
+                  <>
+                    <div className="flex items-baseline justify-between text-xs font-mono">
+                      <span className="text-slate-400">Speaker Similarity</span>
+                      <span className="text-xl font-bold text-white tabular-nums">
+                        {voice.eidos.similarity.toFixed(2)}
+                      </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden border border-white/5">
+                      <div
+                        className={`h-full transition-all duration-500 ${
+                          voice.eidos.decision === 'match'
+                            ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]'
+                            : 'bg-rose-500 shadow-[0_0_8px_#f43f5e]'
+                        }`}
+                        style={{
+                          width: `${Math.min(100, Math.max(5, ((voice.eidos.similarity + 1) / 2) * 100))}%`,
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 pt-1">
+                      <span>{voice.eidos.duration_seconds.toFixed(1)}s sample</span>
+                      <span className="truncate max-w-[140px]" title={voice.eidos.operation_id}>
+                        {voice.eidos.operation_id}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-amber-300/80 font-mono">
+                    Speaker signal missing — failed closed.
+                  </p>
+                )}
+              </div>
+            </Tilt3D>
           </div>
 
-          <p className="text-sm text-slate-700 leading-relaxed">{voice.reason}</p>
-        </div>
+          <p className="text-xs text-slate-300 leading-relaxed font-mono p-3 rounded-xl bg-slate-950/60 border border-white/5">
+            {voice.reason}
+          </p>
+        </GlassCard>
       )}
 
-      {/* Step 3: Second-Device Number-Matching Approval or Hard Block */}
+      {/* Hard Block Failure State */}
       {activeRequest.status === 'BLOCKED' && (
-        <div className="p-6 bg-red-50/40">
-          <div className="flex items-start gap-3">
-            <ShieldAlert className="w-5 h-5 text-[#B91C1C] shrink-0 mt-0.5" />
+        <GlassCard variant="rose" className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="p-3 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/40">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
             <div className="space-y-1.5">
-              <h2 className="text-sm font-semibold text-[#B91C1C]">
-                03. Action Permanently Blocked by Decision Policy
+              <h2 className="text-base font-bold text-rose-300 font-display">
+                Action Permanently Blocked by Policy
               </h2>
-              <p className="text-sm text-slate-700 leading-relaxed">
-                A hard voice-verification failure cannot be overridden by second-device approval. No approval code was issued. Call back on a previously verified company number ({activeRequest.known_callback_hint || 'corporate directory'}) before taking any action.
+              <p className="text-xs text-slate-300 leading-relaxed">
+                A hard voice-verification failure can never be overridden by second-device approval. No approval code was issued.
+                Call back on the verified company number ({activeRequest.known_callback_hint || 'corporate directory'}) before taking any emergency action.
               </p>
             </div>
           </div>
-        </div>
+        </GlassCard>
       )}
 
+      {/* Step 3: Second-Device Number-Matching Approval */}
       {approval && activeRequest.status !== 'BLOCKED' && (
-        <div className="p-6 space-y-4">
+        <GlassCard className="p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-slate-900">
-                03. Second-Device Number-Matching Approval
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <div className="text-xs font-mono uppercase tracking-wider text-cyan-400 font-semibold">
+                Stage 03 · Second-Device Number-Matching Code
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
                 {approval.requires_peer_review
-                  ? 'Borderline result: locked for independent peer review by a different authorised approver.'
-                  : 'Ask a second authorised approver to tap this matching code on their phone within 2 minutes.'}
+                  ? 'Borderline outcome: locked for independent peer review by a different authorized approver.'
+                  : 'Ask a second authorized approver to tap this matching code on their phone within 2 minutes.'}
               </p>
             </div>
             {approval.status === 'PENDING' && !isApprovalExpired && (
-              <button
+              <PressableButton
                 type="button"
+                data-testid="open-phone-btn"
+                variant="primary"
+                size="sm"
+                icon={Smartphone}
                 onClick={onOpenApproverPhone}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-[#2563EB] bg-blue-50/60 hover:bg-blue-50 border border-blue-200 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <Smartphone className="w-3.5 h-3.5" />
                 Open Approver Phone
-              </button>
+              </PressableButton>
             )}
           </div>
 
-          <div className="p-5 bg-[#F8FAFC] border border-slate-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+          <div className="p-6 rounded-2xl bg-slate-950/90 border border-cyan-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-6 shadow-[0_0_30px_rgba(6,182,212,0.15)]">
             <div>
-              <div className="text-xs text-slate-500">Number-Matching Code</div>
-              <div className="mt-1 font-mono text-4xl font-bold tracking-wider tabular-nums text-slate-900">
+              <div className="text-xs font-mono text-cyan-400">Match Number On Approver Device</div>
+              <div
+                data-testid="matching-code-display"
+                className="mt-1 font-mono text-5xl font-black tracking-widest tabular-nums text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]"
+              >
                 {approval.matching_number}
               </div>
               <div className="mt-1 text-xs font-mono text-slate-500">
-                {approval.approval_id} · One-time use
+                {approval.approval_id} · Single-use token
               </div>
             </div>
 
-            <div className="sm:text-right space-y-1.5">
-              <div className="text-xs text-slate-500">Approval Status & Expiry</div>
-              <div className="font-mono text-lg font-semibold tabular-nums text-slate-900">
-                {approval.status === 'PENDING' && !isApprovalExpired
-                  ? `Expires in ${formatCountdown(secondsLeft)}`
-                  : isApprovalExpired
-                    ? 'EXPIRED (2m limit)'
-                    : approval.status}
-              </div>
-              {approval.decided_by && (
-                <div className="text-xs text-slate-600">
-                  Reviewed by <span className="font-mono font-medium">{approval.decided_by}</span>
+            <div className="flex items-center gap-5 sm:text-right">
+              <CountdownRing
+                remainingSeconds={approval.status === 'PENDING' ? secondsLeft : 0}
+                totalSeconds={120}
+                size={72}
+              />
+              <div className="space-y-1">
+                <div className="text-xs font-mono text-slate-400">Approval State</div>
+                <div className="text-sm font-mono font-bold text-white">
+                  {approval.status === 'PENDING' && !isApprovalExpired
+                    ? `${secondsLeft}s remaining`
+                    : isApprovalExpired
+                      ? 'EXPIRED (120s limit)'
+                      : approval.status}
                 </div>
-              )}
-              {isApprovalExpired && (
-                <button
-                  type="button"
-                  onClick={() => onReissueApproval(activeRequest.request_id)}
-                  disabled={busy}
-                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-[#0F172A] hover:bg-slate-800 rounded-md cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Issue Fresh 2-Min Code
-                </button>
-              )}
+                {isApprovalExpired && (
+                  <PressableButton
+                    type="button"
+                    data-testid="reissue-code-btn"
+                    variant="primary"
+                    size="sm"
+                    icon={RefreshCw}
+                    onClick={() => onReissueApproval(activeRequest.request_id)}
+                    disabled={busy}
+                  >
+                    Issue Fresh Code
+                  </PressableButton>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </GlassCard>
       )}
 
-      {/* Step 4: One-Time Simulated Execution */}
+      {/* Step 4: Simulated Action Execution */}
       {(activeRequest.status === 'APPROVED' || activeRequest.status === 'EXECUTED') && (
-        <div className="p-6 space-y-4">
+        <GlassCard variant="emerald" className="p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="text-sm font-semibold text-slate-900">
-                04. Simulated Action Execution
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Backend verifies the action hash, 2-minute window, and consumes the approval atomically once.
+              <div className="text-xs font-mono uppercase tracking-wider text-emerald-400 font-semibold">
+                Stage 04 · Simulated Action Execution
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Backend verifies action-hash binding and consumes approval atomically.
               </p>
             </div>
+
             {activeRequest.status === 'APPROVED' && (
-              <button
+              <PressableButton
                 type="button"
+                data-testid="execute-action-btn"
+                variant="emerald"
+                size="lg"
+                icon={Play}
+                loading={busy}
                 onClick={() => onExecuteRequest(activeRequest.request_id, activeRequest.employee_id)}
-                disabled={busy}
-                className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-[#15803D] hover:bg-green-800 disabled:opacity-50 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                glow
               >
-                <Play className="w-4 h-4 fill-current" />
                 Execute Simulated Action
-              </button>
+              </PressableButton>
             )}
           </div>
 
           {activeRequest.status === 'EXECUTED' && activeRequest.execution_receipt && (
-            <div className="p-4 bg-emerald-50/50 border border-emerald-200 rounded-lg flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-[#15803D] shrink-0 mt-0.5" />
-              <div className="space-y-1 text-sm">
-                <div className="font-semibold text-[#15803D]">
-                  Simulated Execution Completed (Approval Consumed)
+            <div className="p-4 rounded-xl bg-slate-950/80 border border-emerald-500/30 flex items-start gap-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="space-y-1 text-xs">
+                <div className="font-bold text-emerald-300 font-mono">
+                  Simulated Execution Completed (Approval Consumed Atomically)
                 </div>
-                <p className="font-mono text-xs text-slate-700 leading-relaxed">
+                <p className="font-mono text-slate-300 leading-relaxed">
                   {activeRequest.execution_receipt}
                 </p>
               </div>
             </div>
           )}
-        </div>
+        </GlassCard>
       )}
 
       {activeRequest.status === 'REJECTED' && (
-        <div className="p-6 bg-red-50/30 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-[#B91C1C] shrink-0 mt-0.5" />
-          <div className="text-sm">
-            <div className="font-semibold text-[#B91C1C]">Rejected by Second-Device Approver</div>
-            <p className="text-slate-600 mt-1">
-              {activeRequest.decision_notes || 'Approver declined this emergency action.'}
+        <GlassCard variant="rose" className="p-6 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+          <div className="text-xs space-y-1">
+            <div className="font-bold text-rose-300 font-mono">Rejected by Approver</div>
+            <p className="text-slate-300">
+              {activeRequest.decision_notes || 'Approver declined this emergency operation.'}
             </p>
           </div>
-        </div>
+        </GlassCard>
       )}
 
       {errorMessage && (
-        <div className="px-6 py-3 bg-red-50/60 text-sm text-[#B91C1C] font-medium">
+        <p className="text-xs font-mono text-rose-400 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30">
           {errorMessage}
-        </div>
+        </p>
       )}
     </div>
   );
