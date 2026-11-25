@@ -2,7 +2,8 @@
 
 ## Bot audit detail sanitization
 - `FORBIDDEN_DETAIL_KEYS` now also strips file/path-like keys (`file`, `file_id`, `file_path`, `audio_path`, `wav_path`, `path`, `tmp_path`) so voice sample locations cannot reach the audit log.
-- Added a direct sanitizer test; suite: 90 passed.
+- Added a direct sanitizer test; suite: 91 passed.
+- Corrective commit reapplied the edits after concurrent branch/line-ending churn dropped them from `74a829a`; no force-push was used.
 
 ## Bot bridge loopback enforcement
 - `BotInternalBridge` now rejects any non-loopback bind host at construction; only `127.0.0.1` and `::1` are accepted. Added a negative test.

@@ -69,6 +69,23 @@ class _FakeQuery:
         self.answers.append((text, show_alert))
 
 
+def test_sanitize_details_strips_path_like_keys() -> None:
+    clean = audit_bridge._sanitize_details(
+        {
+            "channel": "telegram",
+            "file": "/tmp/raw.ogg",
+            "file_id": "telegram-file-id",
+            "file_path": "/tmp/raw.ogg",
+            "audio_path": "/tmp/raw.wav",
+            "wav_path": "/tmp/normalized.wav",
+            "path": "/tmp/voicegate_enroll_1",
+            "tmp_path": "/tmp/voicegate_enroll_2",
+            "note": "safe detail",
+        }
+    )
+    assert clean == {"channel": "telegram", "note": "safe detail"}
+
+
 def test_all_required_audit_events_chain_and_strip_sensitive_fields(tmp_path: Path) -> None:
     db_path = tmp_path / "audit.db"
     init_db(db_path)
