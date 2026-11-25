@@ -1,5 +1,10 @@
 # Status
 
+## Detectif call budget
+- Added process-wide `MAX_LIVE_CALLS` (default 100, invalid values fall back to 100) enforced at `DetectifClient._post`, so every enroll/verify/deepfake attempt shares one budget; exhaustion raises typed `live_call_limit_reached` and voice checks fail closed.
+- `/health` now returns `remaining_live_calls`; updated the previously stale `/health` assertion and added mocked budget tests.
+- Suite after this step: 87 passed.
+
 ## Live smoke hardening
 - `backend/scripts/live_smoke.py` now strips header/API-key-like fields recursively from the raw verify JSON before saving `backend/fixtures/raw_<label>.json`; stdout still prints only parsed `aletheia`/`eidos`/`risk`.
 - Added mocked `app/ai/test_live_smoke.py` covering exactly one combined verify call, sanitized saved JSON, no key in output, and rejection of `AI_MODE=fixture`.

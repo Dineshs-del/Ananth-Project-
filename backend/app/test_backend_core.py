@@ -317,7 +317,11 @@ def test_fastapi_full_workflow_and_reviewer_token(
     monkeypatch.setenv("REVIEWER_API_TOKEN", "secret-reviewer-token")
     client = TestClient(create_app())
 
-    assert client.get("/health").json() == {"status": "ok"}
+    health = client.get("/health").json()
+    assert health["status"] == "ok"
+    assert health["ai_mode"] == "fixture"
+    assert isinstance(health["remaining_live_calls"], int)
+    assert health["remaining_live_calls"] >= 0
 
     created = client.post(
         "/api/v1/requests",

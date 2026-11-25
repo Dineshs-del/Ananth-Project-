@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import re
+import threading
 import time
 import uuid
 import wave
@@ -22,6 +24,10 @@ DEFAULT_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 MAX_RETRY_AFTER_SECONDS = 60.0
 MIN_AUDIO_SECONDS = 4.0
 MAX_AUDIO_SECONDS = 120.0
+DEFAULT_MAX_LIVE_CALLS = 100
+MAX_LIVE_CALLS_CEILING = 100_000
+_live_call_lock = threading.Lock()
+_live_calls_used = 0
 NO_CREDITS_CODES = {
     "no_credits",
     "insufficient_credits",
@@ -65,6 +71,40 @@ class DetectifError(Exception):
         if self.request_id:
             parts.append(f"request_id={self.request_id}")
         return " | ".join(parts)
+
+
+def _max_live_calls() -> int:
+    raw = os.getenv("MAX_LIVE_CALLS", "").strip()
+    if not raw:
+        return DEFAULT_MAX_LIVE_CALLS
+    try:
+        return max(0, min(int(raw), MAX_LIVE_CALLS_CEILING))
+    except ValueError:
+        return DEFAULT_MAX_LIVE_CALLS
+
+
+def remaining_live_calls() -> int:
+    with _live_call_lock:
+        return max(0, _max_live_calls() - _live_calls_used)
+
+
+def reset_live_call_counter() -> None:
+    global _live_calls_used
+    with _live_call_lock:
+        _live_calls_used = 0
+
+
+def _consume_live_call() -> None:
+    global _live_calls_used
+    with _live_call_lock:
+        limit = _max_live_calls()
+        if _live_calls_used >= limit:
+            raise DetectifError(
+                f"Detectif call limit reached (MAX_LIVE_CALLS={limit}) for this process; "
+                "no further live calls are permitted. Restart the service to reset the budget.",
+                code="live_call_limit_reached",
+            )
+        _live_calls_used += 1
 
 
 def validate_speaker_id(speaker_id: str) -> str:
@@ -275,6 +315,7 @@ class DetectifClient:
         last_error: DetectifError | None = None
 
         for attempt in range(max_attempts):
+            _consume_live_call()
             try:
                 response = self._client.post(
                     endpoint,

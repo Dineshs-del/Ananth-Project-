@@ -10,6 +10,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFil
 from fastapi.middleware.cors import CORSMiddleware
 
 from .ai.config import ConfigError, load_config
+from .ai.detectif_client import remaining_live_calls
 from .ai.enrollment import EnrollmentError, enroll_employee
 from .approval.service import (
     ApprovalError,
@@ -104,12 +105,16 @@ def create_app() -> FastAPI:
     )
 
     @application.get("/health")
-    def health() -> dict[str, str]:
+    def health() -> dict[str, str | int]:
         try:
             ai_mode = load_config().ai_mode
         except ConfigError:
             ai_mode = "misconfigured"
-        return {"status": "ok", "ai_mode": ai_mode}
+        return {
+            "status": "ok",
+            "ai_mode": ai_mode,
+            "remaining_live_calls": remaining_live_calls(),
+        }
 
     # --- Employees ---
 
