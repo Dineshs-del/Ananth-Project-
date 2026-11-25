@@ -1,5 +1,6 @@
-"""Break-glass approval workflow and voice gate orchestration."""
+"""Break-glass approval workflow, decision table, and simulated execution."""
 
+from .decision_table import DecisionResult, evaluate_decision
 from .service import (
     ApprovalError,
     ConflictError,
@@ -7,10 +8,14 @@ from .service import (
     NotFoundError,
     create_employee,
     create_request,
-    decide_request,
+    decide_approval,
+    execute_request,
+    get_approval,
     get_employee,
     get_request,
+    issue_approval_record,
     list_employees,
+    list_pending_approvals,
     list_requests,
     record_enrollment_count,
     refresh_challenge,
@@ -20,14 +25,20 @@ from .service import (
 __all__ = [
     "ApprovalError",
     "ConflictError",
+    "DecisionResult",
     "ForbiddenError",
     "NotFoundError",
     "create_employee",
     "create_request",
-    "decide_request",
+    "decide_approval",
+    "evaluate_decision",
+    "execute_request",
+    "get_approval",
     "get_employee",
     "get_request",
+    "issue_approval_record",
     "list_employees",
+    "list_pending_approvals",
     "list_requests",
     "record_enrollment_count",
     "refresh_challenge",

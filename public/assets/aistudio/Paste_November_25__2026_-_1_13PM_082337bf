@@ -1,0 +1,760 @@
+# PROJECT DOCUMENT
+# Break-Glass Voice Gate
+### Voice Authentication + Action-Bound Emergency Approval System
+
+**Hackathon Track:** Track 03 – The Trust Layer  
+**AI Models:** DetectifAI Aletheia and Eidos  
+**Project Category:** AI / Cybersecurity / Identity Verification / Access Control  
+**Project Status:** Proposed hackathon prototype  
+**Team Members:** To be updated
+
+---
+
+# 1. PROJECT OVERVIEW
+
+Break-Glass Voice Gate is an AI-powered emergency access verification and approval system designed to protect organisations from voice-cloning attacks and social engineering.
+
+Engineering and IT teams frequently need to perform emergency operations that bypass or accelerate their normal security procedures. These operations, commonly known as "break-glass" actions, include emergency production deployments, infrastructure changes, administrator password resets and MFA re-enrolment.
+
+In many organisations, such requests can be initiated or approved through phone calls, voice messages or other communication channels. Employees may trust a request because they recognise the caller's voice.
+
+However, modern AI voice-cloning technology makes it possible for attackers to imitate an authorised employee using a relatively short voice sample. An attacker can impersonate a senior engineer, administrator or IT employee and manipulate another employee into approving a sensitive operation.
+
+Break-Glass Voice Gate addresses this problem by introducing multiple verification and approval layers before a sensitive emergency action can be executed.
+
+The system combines:
+
+1. **AI Deepfake Detection:** Determine whether the submitted voice appears to be AI-generated using DetectifAI's Aletheia model.
+2. **AI Speaker Verification:** Determine whether the speaker matches the previously enrolled authorised employee using DetectifAI's Eidos model.
+3. **Random Voice Challenge:** Ask the requester to speak a newly generated phrase to make simple audio-replay attacks more difficult.
+4. **Action-Bound, Second-Device Approval:** Require an independent authorised person to confirm the exact requested operation using a separate device.
+5. **Risk-Based Escalation:** Handle uncertain verification results by locking the request and escalating it to another authorised person rather than automatically approving or silently rejecting it.
+
+The objective is not simply to detect fake voices. It is to prevent a potentially fraudulent voice request from becoming an unauthorised real-world action.
+
+---
+
+# 2. PROBLEM STATEMENT
+
+## 2.1 The Core Problem
+
+Organisations have emergency access procedures that allow employees to perform sensitive operations quickly when normal procedures are too slow or unavailable.
+
+For example:
+
+- An engineer requests an emergency production deployment.
+- An administrator requests an urgent password reset.
+- An employee needs emergency administrator privileges.
+- An infrastructure engineer needs to execute a Terraform apply.
+- An employee requests MFA re-enrolment after losing access to their authentication device.
+
+These operations can affect production systems, infrastructure, customer information and organisational security.
+
+In time-sensitive situations, employees may rely on phone calls or voice messages to identify the person requesting an emergency operation.
+
+This creates a significant security weakness.
+
+An attacker can use AI-generated voice cloning to imitate an authorised employee and create a convincing emergency scenario.
+
+For example, an attacker could impersonate an on-call engineer and call a system administrator:
+
+"The production environment is down. I need you to approve an emergency deployment immediately."
+
+If the administrator recognises the voice and believes the request is genuine, they may approve the operation without independently verifying the requester's identity.
+
+The attacker does not necessarily need to exploit a software vulnerability, install malware or gain direct access to the company's infrastructure.
+
+Instead, they exploit human trust and the urgency associated with emergency operations.
+
+**The fundamental problem is that recognising someone's voice is no longer sufficient to establish their identity or authorise a sensitive operation.**
+
+## 2.2 Why Existing Verification Practices Are Insufficient
+
+Several weaknesses make these situations vulnerable:
+
+**1. Familiar voices can be impersonated.**
+
+AI voice-cloning tools can generate convincing speech that resembles an employee's voice. Human listeners cannot reliably distinguish every synthetic recording from genuine speech.
+
+**2. Emergency situations encourage rushed decisions.**
+
+When production systems are unavailable or business operations are affected, employees may prioritise speed over verification.
+
+**3. Voice recognition does not establish identity.**
+
+Even if a voice sounds genuine, it does not necessarily prove that the person speaking is the authorised employee.
+
+**4. Deepfake detection alone is insufficient.**
+
+A deepfake detection model can make mistakes. A favourable detection result should not automatically be treated as absolute proof that a request is legitimate.
+
+**5. Generic approval mechanisms do not adequately bind approval to an action.**
+
+An approval such as "Approve request" may not clearly communicate which exact operation is being authorised. This creates opportunities for confusion, manipulation or request substitution.
+
+**6. A single communication channel creates a single point of failure.**
+
+If the attacker controls or convincingly impersonates the caller, the entire approval process may depend on information supplied by the attacker.
+
+Therefore, organisations need a verification system that examines the voice, checks the speaker's identity and independently confirms the exact operation before allowing a sensitive action to proceed.
+
+---
+
+# 3. PROPOSED SOLUTION
+
+Break-Glass Voice Gate introduces a multi-layer emergency approval mechanism.
+
+Instead of trusting a voice request directly, the application places a security gate between the requester and the execution of a sensitive operation.
+
+The system follows this sequence:
+
+**Emergency Request → Voice Verification → Risk Assessment → Independent Device Approval → Action Execution**
+
+Each layer addresses a different security weakness.
+
+## 3.1 Layer One: AI Deepfake Detection – Aletheia
+
+The requester is asked to submit a voice recording through the application's microphone interface.
+
+The recording is sent to DetectifAI's Aletheia model through its API.
+
+Aletheia analyses the audio and returns a deepfake detection verdict and score.
+
+Its purpose is to determine whether the submitted audio appears to be genuine or AI-generated.
+
+Example:
+
+- A genuine employee records the requested voice challenge.
+- An attacker submits an AI-generated imitation of that employee.
+- Aletheia analyses the recording and returns its assessment.
+
+The application displays the result as evidence for the subsequent security decision.
+
+**Question answered:** Does this audio appear to be synthetic?
+
+## 3.2 Layer Two: Speaker Verification – Eidos
+
+Deepfake detection and speaker verification solve different problems.
+
+A recording may contain a genuine human voice but still belong to an unauthorised individual.
+
+To address this, the system uses DetectifAI's Eidos speaker verification model.
+
+Before using the system, authorised employees enrol their voices.
+
+When an employee subsequently requests emergency access:
+
+1. The employee submits a new voice recording.
+2. Eidos compares the new recording against the previously enrolled voice.
+3. The model returns a speaker verification result.
+4. The application determines whether the speaker matches the registered employee.
+
+**Question answered:** Is this the enrolled authorised employee?
+
+The combination of Aletheia and Eidos provides two different forms of voice verification:
+
+- Aletheia checks for synthetic audio.
+- Eidos checks the identity of the speaker.
+
+Neither result should be treated as absolute proof.
+
+## 3.3 Layer Three: Random Voice Challenge
+
+To make simple recorded-audio replay attacks more difficult, the application introduces a random challenge phrase.
+
+When an employee initiates an emergency request, the application generates a short, unpredictable phrase.
+
+Example:
+
+"Blue Tiger Forty-Seven."
+
+The requester must speak the displayed phrase into the microphone.
+
+The newly recorded audio is then submitted for the required verification checks.
+
+The objective is to prevent an attacker from simply replaying an older recording of the employee speaking a different sentence.
+
+The challenge phrase must produce sufficient audio duration for the supported model requirements. The initial project assumption is to target at least four seconds of audio, subject to API documentation and testing.
+
+**Important limitation:** A random phrase makes simple replay attacks harder, but does not independently prevent real-time voice cloning. A sophisticated attacker may generate speech containing the challenge phrase.
+
+---
+
+# 4. THE THIRD FEATURE: ACTION-BOUND APPROVAL ON A SECOND DEVICE
+
+This is a central part of the proposed security architecture.
+
+Voice verification is only the first security gate.
+
+Even after the voice checks are satisfactory, a high-risk operation must receive independent approval from another authorised person using a separate device.
+
+The purpose is to ensure that successful voice impersonation alone cannot execute a sensitive operation.
+
+## 4.1 Why a Second Device Is Necessary
+
+Consider an attacker who successfully imitates an authorised engineer's voice.
+
+Even if the voice verification models incorrectly classify the recording, the attacker should not automatically gain permission to perform an emergency operation.
+
+The system introduces another independent approval requirement.
+
+The requester may initiate an operation from their laptop or through a call, but execution requires confirmation from an authorised approver using a separate device.
+
+For example:
+
+- Rahul is the engineer requesting an emergency production deployment.
+- Priya is the authorised administrator responsible for approving the operation.
+- Rahul uses his laptop to initiate the request.
+- Priya uses her own phone to review and approve it.
+
+The attacker may be able to imitate Rahul's voice, but that does not automatically provide access to Priya's separate device.
+
+## 4.2 Exact Action Display
+
+After the initial verification stage, the system creates a specific approval request.
+
+The approval screen must display the exact operation being requested.
+
+Example:
+
+**Requested Action:**
+Deploy build 142 to production.
+
+**Requester:**
+Rahul – On-call Engineer.
+
+**Approval Code:**
+47.
+
+**Expiry:**
+2 minutes.
+
+The system must not display a vague message such as "Approve emergency request."
+
+The approver must clearly understand what operation they are authorising.
+
+This is known as action-bound approval: the approval is associated with a particular operation rather than being a generic permission.
+
+## 4.3 Number-Matching Approval
+
+The system generates a short number-matching code for the approval request.
+
+The authorised approver opens a separate approver page on their own phone.
+
+The page displays the pending request, including:
+
+- The exact requested operation.
+- The requester's identity.
+- The matching number.
+- The remaining approval time.
+
+The approver reviews the request and selects the matching number to confirm the operation.
+
+The system verifies the approval and associates it with that specific request.
+
+The operation can proceed only when the approval requirements are satisfied.
+
+## 4.4 Short-Lived and One-Time Approval
+
+Every approval request must have a limited validity period.
+
+The proposed initial expiry is approximately two minutes.
+
+Once the request expires:
+
+- The approval link or request must no longer be usable.
+- The request must not be approved using an expired code.
+- A new approval request must be generated if the operation is still required.
+
+Each approval must also be usable only once.
+
+This prevents an earlier approval from being reused for another operation or at a later time.
+
+The backend must enforce expiry, one-time use and request association. These restrictions must not depend only on the frontend interface.
+
+## 4.5 Different-Person Escalation
+
+When the voice verification result is uncertain, the application must not automatically approve the operation.
+
+Instead, the request enters a restricted state.
+
+The system sends the approval request to a different authorised person's device for additional review.
+
+The person requesting the emergency action must not be allowed to approve their own request.
+
+This introduces separation of responsibility and reduces the risk of one compromised identity controlling the entire process.
+
+## 4.6 Why This Feature Adds Security
+
+The second-device approval addresses a different weakness from voice verification.
+
+- Aletheia attempts to detect synthetic audio.
+- Eidos attempts to verify speaker identity.
+- The second-device approval verifies that another authorised person has independently agreed to the exact operation.
+
+Even if an attacker manages to bypass the voice verification stage, they still need to obtain independent approval.
+
+**The core security principle is that impersonating an employee's voice must not be sufficient to execute a high-risk operation.**
+
+### Security limitation
+
+A separate device and number-matching code do not automatically constitute phishing-resistant MFA.
+
+The approver's device could also be compromised, or the approver could be manipulated into accepting a fraudulent request.
+
+The proposed hackathon implementation is an additional approval control, not a replacement for cryptographically secured authentication.
+
+Integration with passkeys or FIDO2 can be considered future work.
+
+---
+
+# 5. COMPLETE SYSTEM WORKFLOW
+
+The following describes the intended end-to-end behaviour.
+
+## Step 1: Emergency Request
+
+An authorised employee opens the application and selects an emergency operation.
+
+Examples:
+
+- Emergency production deployment.
+- Infrastructure configuration change.
+- Administrator password reset.
+- MFA re-enrolment.
+
+The application creates a unique request with its requested operation and requester details.
+
+## Step 2: Voice Challenge
+
+The application generates a random phrase.
+
+The requester speaks the phrase using the microphone.
+
+The recording is captured and submitted for analysis.
+
+## Step 3: AI Voice Verification
+
+The backend sends the recording to:
+
+**Aletheia:** Deepfake detection.
+
+**Eidos:** Speaker verification against the enrolled employee.
+
+The application receives the model responses and evaluates them according to its configured decision policy.
+
+## Step 4: Risk Assessment
+
+The application classifies the verification outcome into three categories.
+
+### PASS
+
+The verification results satisfy the application's configured acceptance conditions.
+
+The request can proceed to the mandatory second-device approval stage.
+
+### BORDERLINE
+
+The verification results are inconclusive or fall into an uncertain range.
+
+The request remains locked and requires review by a different authorised person.
+
+The application must not silently treat an uncertain result as successful verification.
+
+### FAIL
+
+The verification results indicate a suspicious recording or an identity mismatch.
+
+The request is blocked.
+
+The application recommends contacting the employee through a previously verified communication channel.
+
+## Step 5: Independent Second-Device Approval
+
+For an eligible request, the system generates an approval record containing:
+
+- A unique request identifier.
+- The exact requested action.
+- Requester details.
+- Approval number.
+- Expiry timestamp.
+- Approval status.
+
+The authorised approver opens the separate approval page on their phone.
+
+They review the operation and confirm the matching number.
+
+For borderline requests, the system routes the request to a different authorised approver for additional review.
+
+## Step 6: Final Decision
+
+The backend checks:
+
+- Whether voice verification satisfies the required policy.
+- Whether the approver is authorised.
+- Whether the approval belongs to the exact request.
+- Whether the approval is still valid.
+- Whether the approval has already been consumed.
+- Whether any additional review requirements remain unresolved.
+
+Only when the required conditions are satisfied can the operation proceed.
+
+## Step 7: Execution and Audit Record
+
+For the hackathon prototype, the operation will be simulated rather than connected to real production infrastructure.
+
+Example:
+
+"Deploy build 142 to production."
+
+The application displays an execution confirmation.
+
+It also records an audit entry containing the request details, verification outcomes, approval information, timestamps and final decision.
+
+This makes the decision traceable and helps demonstrate how the system reached its outcome.
+
+---
+
+# 6. DECISION-MAKING LOGIC
+
+The intended security behaviour is:
+
+| Voice verification | Second-device approval | System decision |
+|---|---|---|
+| Pass | Valid authorised approval | Permit simulated action |
+| Pass | Pending | Keep request locked |
+| Pass | Rejected | Block action |
+| Borderline | Pending peer review | Keep request locked |
+| Borderline | Approved after required review | Permit according to policy |
+| Fail | Any approval attempt | Block action |
+| Any result | Expired approval | Reject approval |
+| Any result | Reused approval | Reject approval |
+
+**Important:** A second-device approval must not override a hard voice-verification failure. A failed verification remains blocked. Borderline results require additional review rather than automatic acceptance.
+
+The actual numerical thresholds for Pass, Borderline and Fail must be determined from DetectifAI's documented response fields and testing. They must not be invented or assumed.
+
+---
+
+# 7. REAL-WORLD USE CASE
+
+Consider a software company with an on-call engineering team.
+
+At 2 AM, its production environment experiences a serious failure.
+
+An engineer needs to deploy an emergency fix.
+
+Under normal circumstances, the engineer contacts the administrator and requests approval.
+
+An attacker who has cloned the engineer's voice attempts to impersonate them and requests an emergency deployment.
+
+Without Break-Glass Voice Gate, the administrator might trust the familiar voice and approve the operation.
+
+With Break-Glass Voice Gate:
+
+1. The requester must submit a new voice recording.
+2. Aletheia checks whether the audio appears synthetic.
+3. Eidos checks whether the speaker matches the enrolled engineer.
+4. The application evaluates the verification results.
+5. The exact deployment request is displayed on a separate authorised approver's device.
+6. The approver independently reviews and confirms the operation.
+7. The application permits or blocks the simulated deployment based on the complete approval policy.
+
+The attacker now faces multiple independent security controls rather than relying on a convincing voice alone.
+
+---
+
+# 8. GAP ANALYSIS AND DIFFERENTIATION
+
+The project aims to address the gap between detecting suspicious audio and actually preventing an unauthorised operation.
+
+The following are preliminary findings from our initial research and require further verification before being presented as definitive competitive claims.
+
+## 8.1 Existing Solutions Identified
+
+**Satark-AI**
+
+A GitHub project combining deepfake detection and speaker verification using technologies including React, FastAPI and SpeechBrain.
+
+Repository: https://github.com/theunstopabble/Satark-AI
+
+**Sonic-Cipher**
+
+A Python package combining speaker verification and spoof detection.
+
+Package: https://pypi.org/project/sonic-cipher/
+
+**Kiwano and WeDefense**
+
+Research-oriented tools and approaches associated with speaker verification and audio spoof detection.
+
+**Help Desk Security Recommendations**
+
+Security guidance frequently recommends multi-channel verification and stronger authentication practices to prevent voice-based impersonation.
+
+## 8.2 Identified Opportunity
+
+Our preliminary research suggests an opportunity to combine voice verification with an action-specific emergency approval workflow.
+
+The project is not intended to compete solely as another deepfake detection or speaker identification application.
+
+Its differentiation is the connection between voice verification and the execution of a sensitive operation.
+
+The proposed solution:
+
+1. Does not stop at displaying a deepfake detection score.
+2. Connects verification results to a specific emergency action.
+3. Requires independent approval through a separate device.
+4. Binds approval to the exact requested operation.
+5. Prevents expired or previously consumed approvals from being reused.
+6. Escalates uncertain results to another authorised person.
+7. Provides a clear audit trail and final decision.
+
+**Our central innovation is protecting the action itself, not merely identifying suspicious audio.**
+
+We must not claim that no existing product provides these capabilities without completing a broader competitor review.
+
+---
+
+# 9. TECHNOLOGY AND IMPLEMENTATION APPROACH
+
+The proposed architecture consists of the following components.
+
+## 9.1 Frontend
+
+A web application with two primary interfaces.
+
+**Requester Interface**
+
+- Emergency operation selection.
+- Voice recording interface.
+- Random challenge display.
+- Verification status.
+- Approval request status.
+- Final execution result.
+
+**Approver Interface**
+
+- Separate approval page designed for a phone.
+- Pending approval requests.
+- Exact action details.
+- Requester identity.
+- Number-matching interface.
+- Approval or rejection controls.
+- Expiry information.
+
+## 9.2 Backend
+
+The backend manages:
+
+- Emergency request creation.
+- Audio upload and processing.
+- DetectifAI API integration.
+- Voice verification results.
+- Risk classification.
+- Approval record generation.
+- Request expiry.
+- One-time approval enforcement.
+- Approver authorisation.
+- Final action execution.
+- Audit logging.
+
+## 9.3 AI Integration
+
+**Aletheia**
+
+DetectifAI deepfake detection API.
+
+**Eidos**
+
+DetectifAI speaker enrollment and verification APIs.
+
+Both models must be accessed using the provided API or MCP server according to the hackathon requirements.
+
+Documentation: https://platform.detectif.ai/docs
+
+## 9.4 Approval Mechanism
+
+The separate-device approval mechanism can initially be implemented using two web interfaces and a backend-managed approval record.
+
+No dedicated hardware security key is required for the hackathon prototype.
+
+The approval record must be securely associated with the original emergency request.
+
+A production implementation should additionally use secure authentication, cryptographically protected request integrity, access controls and phishing-resistant authentication such as passkeys or FIDO2.
+
+## 9.5 Proposed Architecture
+
+Requester Interface
+→ Emergency Request Backend
+→ Random Voice Challenge
+→ Audio Recording
+→ Aletheia + Eidos
+→ Risk Assessment
+→ Action-Bound Approval Service
+→ Separate Approver Device
+→ Backend Approval Validation
+→ Mock Action Execution
+→ Audit Log
+
+---
+
+# 10. HACKATHON IMPLEMENTATION SCOPE
+
+The project is divided into two development stages.
+
+## DAY 1 – ROUND 1
+
+**Objective: Build a working minimum viable prototype demonstrating the core concept.**
+
+Planned implementation:
+
+1. Develop the requester interface.
+2. Create an emergency operation request.
+3. Implement audio recording and upload.
+4. Integrate DetectifAI Aletheia.
+5. Display the deepfake detection verdict and score.
+6. Implement a basic Pass / Borderline / Fail decision mechanism using documented model responses and a clearly defined prototype policy.
+7. Create a simulated emergency action.
+8. Implement the basic approval workflow where feasible.
+9. Demonstrate the working application to the judges.
+
+The Day 1 prototype should prioritise actual Aletheia integration and a working end-to-end demonstration rather than spending excessive time on UI polish.
+
+## DAY 2 – FINAL ROUND
+
+**Objective: Extend the prototype into a multi-layer emergency approval system.**
+
+Planned implementation:
+
+1. Integrate Eidos speaker enrollment.
+2. Implement speaker verification.
+3. Add random voice challenge generation.
+4. Implement the separate approver interface.
+5. Generate unique, short-lived, action-bound approval records.
+6. Implement number matching.
+7. Enforce two-minute expiry and one-time approval.
+8. Implement different-person escalation for borderline results.
+9. Add audit logging and improve the final dashboard.
+10. Demonstrate the complete workflow.
+
+The exact implementation order may change depending on API availability, development time and judging feedback.
+
+---
+
+# 11. SECURITY, LIMITATIONS AND HONESTY
+
+The system must communicate verification results honestly.
+
+A model score is evidence, not absolute proof.
+
+The following limitations must be acknowledged:
+
+**1. Deepfake detection is not infallible.**
+
+Aletheia may produce incorrect results. The application must not claim that every AI-generated voice will be detected.
+
+**2. Speaker verification is not absolute identity proof.**
+
+Eidos compares voices, but a speaker match should not be treated as a complete guarantee of identity.
+
+**3. Challenge phrases do not defeat advanced real-time cloning.**
+
+They primarily reduce simple recorded-audio replay attacks.
+
+**4. Second-device approval is not automatically phishing-resistant MFA.**
+
+An approver can still be socially engineered or have their device compromised.
+
+**5. Action binding must be enforced by the backend.**
+
+The approval must remain connected to the exact original operation. The client must not be able to change the action after approval.
+
+**6. No real production operations will be executed during the hackathon demonstration.**
+
+Deployments, password resets and other sensitive operations will be simulated.
+
+**7. Voice recordings must be collected with the speaker's permission.**
+
+Only team members' voices or other explicitly authorised recordings will be used.
+
+**8. Uncertain results must not silently become successful approvals.**
+
+Every decision must provide a clear reason and next step.
+
+---
+
+# 12. UNKNOWN TECHNICAL DETAILS TO VERIFY
+
+Before implementation, the team must verify:
+
+1. Aletheia's supported audio formats and minimum/maximum recording durations.
+2. Aletheia's response structure and confidence score interpretation.
+3. Eidos enrollment requirements.
+4. Eidos verification parameters and supported audio formats.
+5. Whether both models can process the same recording or require different audio preparation.
+6. API credit consumption for each operation.
+7. Whether the API supports the intended recording duration.
+8. How model verdicts should be interpreted when designing the Pass / Borderline / Fail policy.
+
+No unsupported API parameters, thresholds or model capabilities should be assumed.
+
+---
+
+# 13. FUTURE ENHANCEMENTS
+
+Features outside the initial hackathon scope may include:
+
+- Slack approval integration.
+- GitHub Actions deployment approval integration.
+- Real DevOps pipeline enforcement.
+- Passkey and FIDO2 authentication.
+- Stronger cryptographic request binding.
+- Enterprise identity provider integration.
+- Role-based approver permissions.
+- Advanced security audit and monitoring.
+- Notifications through verified organisational communication channels.
+
+These features are potential future extensions and are not required for the initial working prototype.
+
+---
+
+# 14. PROJECT VALUE AND EXPECTED OUTCOME
+
+Break-Glass Voice Gate aims to reduce the risk of unauthorised emergency operations caused by voice-based impersonation.
+
+Its value comes from combining three different security principles:
+
+**AI-Based Voice Verification**
+
+Determine whether the submitted audio appears synthetic and whether the speaker matches an enrolled employee.
+
+**Independent Human Approval**
+
+Require a second authorised person to review and approve the exact requested operation through a separate device.
+
+**Action-Level Security Enforcement**
+
+Ensure that approval is time-limited, one-time, associated with the original request and enforced by the backend.
+
+The project shifts emergency approval from a trust-based voice interaction to a structured, verifiable and auditable security workflow.
+
+---
+
+# 15. FINAL PROJECT DEFINITION
+
+Break-Glass Voice Gate is a multi-layer AI-powered emergency access approval system that protects organisations against voice-cloning attacks and social engineering.
+
+It uses DetectifAI's Aletheia model to assess whether a voice recording appears synthetic and Eidos to verify whether the speaker matches an enrolled employee.
+
+It further introduces random voice challenges and mandatory action-bound approval through a separate authorised person's device.
+
+Even if an attacker successfully impersonates an employee's voice or a verification model produces an incorrect result, voice verification alone cannot authorise a high-risk operation.
+
+The system requires independent approval, enforces request-specific and time-limited permissions, and escalates uncertain results for additional review.
+
+**The fundamental objective is simple:**
+
+Do not allow a convincing voice to become sufficient authority to execute a critical operation.
+
+**Verify the voice. Verify the person. Verify the action. Then allow it to proceed.**

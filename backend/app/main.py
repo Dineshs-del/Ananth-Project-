@@ -17,10 +17,14 @@ from .approval.service import (
     NotFoundError,
     create_employee,
     create_request,
-    decide_request,
+    decide_approval,
+    execute_request,
+    get_approval,
     get_employee,
     get_request,
+    issue_approval_record,
     list_employees,
+    list_pending_approvals,
     list_requests,
     record_enrollment_count,
     refresh_challenge,
@@ -30,13 +34,16 @@ from .audit.service import list_events, verify_chain
 from .core.config import load_core_config
 from .core.database import get_db, init_db
 from .core.schemas import (
+    ApprovalDecisionRequest,
+    ApprovalRecordOut,
     AuditChainVerificationOut,
     AuditEventOut,
     BreakGlassRequestCreate,
     BreakGlassRequestOut,
-    DecisionRequest,
     EmployeeCreate,
     EmployeeOut,
+    ExecuteActionRequest,
+    MockExecutionOut,
 )
 from .core.storage import UploadValidationError, save_audio_upload
 
@@ -180,7 +187,7 @@ def create_app() -> FastAPI:
             "enrolled": summary["enrolled"],
         }
 
-    # --- Break-Glass Requests ---
+    # --- Break-Glass Requests (Requester UI) ---
 
     @application.post(
         "/api/v1/requests",
@@ -266,6 +273,7 @@ def create_app() -> FastAPI:
                         conn,
                         request_id=request_id,
                         audio_path=str(saved_path),
+                        approval_ttl_seconds=cfg.approval_ttl_seconds,
                     )
                 except ApprovalError as exc:
                     _raise_http(exc)
@@ -273,24 +281,75 @@ def create_app() -> FastAPI:
             saved_path.unlink(missing_ok=True)
 
     @application.post(
-        "/api/v1/requests/{request_id}/decision",
+        "/api/v1/requests/{request_id}/approval",
+        response_model=ApprovalRecordOut,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def api_reissue_approval(request_id: str) -> dict:
+        cfg = load_core_config()
+        with get_db() as conn:
+            try:
+                return issue_approval_record(
+                    conn,
+                    request_id=request_id,
+                    approval_ttl_seconds=cfg.approval_ttl_seconds,
+                )
+            except ApprovalError as exc:
+                _raise_http(exc)
+
+    @application.post(
+        "/api/v1/requests/{request_id}/execute",
+        response_model=MockExecutionOut,
+    )
+    def api_execute_request(
+        request_id: str,
+        payload: ExecuteActionRequest,
+    ) -> dict:
+        with get_db() as conn:
+            try:
+                return execute_request(
+                    conn,
+                    request_id=request_id,
+                    actor_id=payload.actor_id,
+                )
+            except ApprovalError as exc:
+                _raise_http(exc)
+
+    # --- Second-Device Approvals (Approver Phone Page) ---
+
+    @application.get("/api/v1/approvals/pending", response_model=list[ApprovalRecordOut])
+    def api_list_pending_approvals() -> list[dict]:
+        with get_db() as conn:
+            return list_pending_approvals(conn)
+
+    @application.get("/api/v1/approvals/{approval_id}", response_model=ApprovalRecordOut)
+    def api_get_approval(approval_id: str) -> dict:
+        with get_db() as conn:
+            try:
+                return get_approval(conn, approval_id)
+            except ApprovalError as exc:
+                _raise_http(exc)
+
+    @application.post(
+        "/api/v1/approvals/{approval_id}/decide",
         response_model=BreakGlassRequestOut,
     )
-    def api_decide_request(
-        request_id: str,
-        payload: DecisionRequest,
+    def api_decide_approval(
+        approval_id: str,
+        payload: ApprovalDecisionRequest,
         authorization: str | None = Header(default=None),
     ) -> dict:
         _verify_reviewer_token(authorization)
         with get_db() as conn:
             try:
-                return decide_request(
+                return decide_approval(
                     conn,
-                    request_id=request_id,
+                    approval_id=approval_id,
                     reviewer_id=payload.reviewer_id,
                     action=payload.action,
+                    matching_number=payload.matching_number,
                     notes=payload.notes,
-                    callback_verified=payload.callback_verified,
+                    peer_review_confirmed=payload.peer_review_confirmed,
                 )
             except ApprovalError as exc:
                 _raise_http(exc)

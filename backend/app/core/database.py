@@ -26,14 +26,16 @@ CREATE TABLE IF NOT EXISTS break_glass_requests (
     action_summary TEXT NOT NULL,
     target_resource TEXT NOT NULL,
     justification TEXT NOT NULL,
+    action_hash TEXT NOT NULL,
     status TEXT NOT NULL CHECK (
         status IN (
             'PENDING_VOICE',
             'PENDING_APPROVAL',
             'ESCALATED_REVIEW',
-            'HIGH_RISK_HOLD',
+            'BLOCKED',
             'APPROVED',
             'REJECTED',
+            'EXECUTED',
             'EXPIRED'
         )
     ),
@@ -46,7 +48,8 @@ CREATE TABLE IF NOT EXISTS break_glass_requests (
     eidos_json TEXT,
     reviewer_id TEXT,
     decision_notes TEXT,
-    callback_verified INTEGER NOT NULL DEFAULT 0,
+    execution_receipt TEXT,
+    executed_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     decided_at TEXT,
@@ -56,6 +59,30 @@ CREATE TABLE IF NOT EXISTS break_glass_requests (
 
 CREATE INDEX IF NOT EXISTS idx_requests_status ON break_glass_requests(status);
 CREATE INDEX IF NOT EXISTS idx_requests_employee ON break_glass_requests(employee_id);
+
+CREATE TABLE IF NOT EXISTS approval_records (
+    approval_id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL,
+    action_hash TEXT NOT NULL,
+    matching_number TEXT NOT NULL,
+    number_options_json TEXT NOT NULL,
+    requires_peer_review INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL CHECK (
+        status IN ('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED', 'CONSUMED')
+    ),
+    expires_at TEXT NOT NULL,
+    decided_by TEXT,
+    decision_notes TEXT,
+    peer_review_confirmed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    decided_at TEXT,
+    consumed_at TEXT,
+    FOREIGN KEY (request_id) REFERENCES break_glass_requests(request_id),
+    FOREIGN KEY (decided_by) REFERENCES employees(employee_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_approvals_request ON approval_records(request_id);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approval_records(status);
 
 CREATE TABLE IF NOT EXISTS audit_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,9 +99,9 @@ CREATE INDEX IF NOT EXISTS idx_audit_request ON audit_events(request_id);
 """
 
 SAMPLE_EMPLOYEES = (
-    ("emp_alice", "Alice Rivera", "requester", "Corp Directory Ext. 4102", 2),
-    ("emp_bob", "Bob Chen", "approver", "On-Call Directory Ext. 4208", 2),
-    ("emp_carol", "Carol Patel", "security_admin", "SOC Desk Ext. 4900", 2),
+    ("emp_rahul", "Rahul — On-call Engineer", "requester", "Corp Directory Ext. 4102", 2),
+    ("emp_priya", "Priya — Production Admin", "approver", "On-Call Directory Ext. 4208", 2),
+    ("emp_carol", "Carol — Security Lead", "security_admin", "SOC Desk Ext. 4900", 2),
 )
 
 

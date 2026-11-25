@@ -25,6 +25,7 @@ class CoreConfig:
     upload_dir: Path
     cors_origins: tuple[str, ...]
     challenge_ttl_seconds: int
+    approval_ttl_seconds: int
     max_upload_bytes: int
     reviewer_api_token: str | None
 
@@ -53,6 +54,13 @@ def load_core_config() -> CoreConfig:
     except ValueError:
         challenge_ttl = 300
 
+    # Documented 2-minute approval expiry (120 seconds).
+    approval_ttl_raw = os.getenv("APPROVAL_TTL_SECONDS", "120").strip()
+    try:
+        approval_ttl = max(10, min(int(approval_ttl_raw), 600))
+    except ValueError:
+        approval_ttl = 120
+
     max_mb_raw = os.getenv("MAX_UPLOAD_MB", "15").strip()
     try:
         max_upload_bytes = max(1, min(int(max_mb_raw), 50)) * 1024 * 1024
@@ -66,6 +74,7 @@ def load_core_config() -> CoreConfig:
         upload_dir=upload_dir,
         cors_origins=origins or DEFAULT_CORS_ORIGINS,
         challenge_ttl_seconds=challenge_ttl,
+        approval_ttl_seconds=approval_ttl,
         max_upload_bytes=max_upload_bytes,
         reviewer_api_token=reviewer_token,
     )

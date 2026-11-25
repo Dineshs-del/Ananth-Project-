@@ -1,19 +1,22 @@
-"""Pytest suite for Member A backend core, approval workflow, audit chain, and FastAPI routes."""
+"""Pytest suite for Member A: lifecycle, 2-min approvals, number-matching, decision table, mock execution, and audit chain."""
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 
 import pytest
 
 try:
+    from backend.app.approval import decision_table
     from backend.app.approval import service as approval_service
     from backend.app.audit import service as audit_service
     from backend.app.core.database import get_db, init_db
     from backend.app.core.storage import UploadValidationError, save_audio_upload
     from backend.app.main import create_app
 except ModuleNotFoundError:
+    from app.approval import decision_table  # type: ignore[no-redef]
     from app.approval import service as approval_service  # type: ignore[no-redef]
     from app.audit import service as audit_service  # type: ignore[no-redef]
     from app.core.database import get_db, init_db  # type: ignore[no-redef]
@@ -29,9 +32,36 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setenv("UPLOAD_DIR", str(upload_dir))
     monkeypatch.setenv("AI_MODE", "fixture")
     monkeypatch.setenv("FIXTURE_SCENARIO", "pass")
+    monkeypatch.setenv("APPROVAL_TTL_SECONDS", "120")
     monkeypatch.delenv("REVIEWER_API_TOKEN", raising=False)
     init_db(db_path, seed_sample_employees=True)
     return db_path
+
+
+# --- Section 6 Decision Table tests ---
+
+
+def test_decision_table_all_rows() -> None:
+    assert decision_table.evaluate_decision(voice_risk="PASS", approval_status="APPROVED").allowed is True
+    assert decision_table.evaluate_decision(voice_risk="PASS", approval_status="PENDING").outcome == "LOCKED"
+    assert decision_table.evaluate_decision(voice_risk="PASS", approval_status="REJECTED").outcome == "BLOCK"
+    assert decision_table.evaluate_decision(voice_risk="BORDERLINE", approval_status="PENDING").outcome == "LOCKED"
+    assert decision_table.evaluate_decision(
+        voice_risk="BORDERLINE", approval_status="APPROVED", peer_review_confirmed=False
+    ).outcome == "LOCKED"
+    assert decision_table.evaluate_decision(
+        voice_risk="BORDERLINE", approval_status="APPROVED", peer_review_confirmed=True
+    ).allowed is True
+    # Hard FAIL can NEVER be overridden by approval
+    assert decision_table.evaluate_decision(
+        voice_risk="FAIL", approval_status="APPROVED", peer_review_confirmed=True
+    ).outcome == "BLOCK"
+    assert decision_table.evaluate_decision(
+        voice_risk="PASS", approval_status="APPROVED", approval_expired=True
+    ).outcome == "REJECT"
+    assert decision_table.evaluate_decision(
+        voice_risk="PASS", approval_status="APPROVED", approval_reused=True
+    ).outcome == "REJECT"
 
 
 def test_storage_validates_extension_and_size(tmp_path: Path) -> None:
@@ -62,7 +92,7 @@ def test_storage_validates_extension_and_size(tmp_path: Path) -> None:
     saved.unlink()
 
 
-def test_end_to_end_pass_workflow_and_dual_control(
+def test_pass_number_matching_one_time_execution_and_different_person(
     isolated_env: Path, tmp_path: Path
 ) -> None:
     wav = tmp_path / "voice.wav"
@@ -71,58 +101,93 @@ def test_end_to_end_pass_workflow_and_dual_control(
     with get_db(isolated_env) as conn:
         req = approval_service.create_request(
             conn,
-            employee_id="emp_alice",
-            action_summary="Restart prod billing DB",
-            target_resource="prod-db-01",
-            justification="INC-402 checkout outage",
+            employee_id="emp_rahul",
+            action_summary="Deploy build 142 to production",
+            target_resource="prod-api",
+            justification="INC-402 emergency outage fix",
         )
         assert req["status"] == "PENDING_VOICE"
-        assert len(req["challenge_phrase"].split()) >= 15
 
-        # Cannot approve before voice check
-        with pytest.raises(approval_service.ConflictError, match="before voice verification"):
-            approval_service.decide_request(
-                conn,
-                request_id=req["request_id"],
-                reviewer_id="emp_bob",
-                action="approve",
-            )
-
-        # Voice check in fixture pass mode -> PENDING_APPROVAL
         verified = approval_service.submit_voice_verification(
             conn,
             request_id=req["request_id"],
             audio_path=str(wav),
         )
         assert verified["status"] == "PENDING_APPROVAL"
-        assert verified["voice_result"]["risk"] == "PASS"
+        approval = verified["active_approval"]
+        assert approval is not None
+        assert approval["matching_number"] in approval["number_options"]
+        assert len(approval["number_options"]) == 3
+        assert 0 < approval["remaining_seconds"] <= 120
 
-        # Dual control: requester cannot approve own request
+        # Cannot execute before approval
         with pytest.raises(approval_service.ForbiddenError):
-            approval_service.decide_request(
-                conn,
-                request_id=req["request_id"],
-                reviewer_id="emp_alice",
-                action="approve",
+            approval_service.execute_request(
+                conn, request_id=req["request_id"], actor_id="emp_rahul"
             )
 
-        # Authorized reviewer approves
-        approved = approval_service.decide_request(
+        # Different-person rule blocks requester self-approval
+        with pytest.raises(approval_service.ForbiddenError):
+            approval_service.decide_approval(
+                conn,
+                approval_id=approval["approval_id"],
+                reviewer_id="emp_rahul",
+                action="approve",
+                matching_number=approval["matching_number"],
+            )
+
+        # Wrong number-matching code rejected
+        wrong_code = next(c for c in approval["number_options"] if c != approval["matching_number"])
+        with pytest.raises(approval_service.ForbiddenError, match="Number-matching"):
+            approval_service.decide_approval(
+                conn,
+                approval_id=approval["approval_id"],
+                reviewer_id="emp_priya",
+                action="approve",
+                matching_number=wrong_code,
+            )
+
+        # Correct number-matching approval by second authorised person succeeds
+        approved = approval_service.decide_approval(
             conn,
-            request_id=req["request_id"],
-            reviewer_id="emp_bob",
+            approval_id=approval["approval_id"],
+            reviewer_id="emp_priya",
             action="approve",
+            matching_number=approval["matching_number"],
             notes="Verified incident ticket INC-402.",
         )
         assert approved["status"] == "APPROVED"
-        assert approved["reviewer_id"] == "emp_bob"
+
+        # One-time use: re-approving same approval record fails
+        with pytest.raises(approval_service.ConflictError, match="one-time"):
+            approval_service.decide_approval(
+                conn,
+                approval_id=approval["approval_id"],
+                reviewer_id="emp_carol",
+                action="approve",
+                matching_number=approval["matching_number"],
+            )
+
+        # Simulated mock execution succeeds once
+        receipt = approval_service.execute_request(
+            conn, request_id=req["request_id"], actor_id="emp_rahul"
+        )
+        assert receipt["status"] == "EXECUTED"
+        assert receipt["simulated"] is True
+        assert "[SIMULATED]" in receipt["execution_receipt"]
+
+        # One-time execution: second execution blocked
+        with pytest.raises(approval_service.ConflictError, match="already been executed"):
+            approval_service.execute_request(
+                conn, request_id=req["request_id"], actor_id="emp_rahul"
+            )
 
         chain = audit_service.verify_chain(conn)
         assert chain["valid"] is True
-        assert chain["checked_events"] >= 3
+        assert chain["checked_events"] >= 5
 
 
-def test_fail_and_borderline_require_callback_before_approval(
+def test_fail_hard_blocks_and_cannot_be_approved_or_executed(
     isolated_env: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     wav = tmp_path / "voice.wav"
@@ -132,62 +197,119 @@ def test_fail_and_borderline_require_callback_before_approval(
     with get_db(isolated_env) as conn:
         req = approval_service.create_request(
             conn,
-            employee_id="emp_alice",
-            action_summary="Rotate KMS master key",
-            target_resource="kms-prod",
-            justification="Emergency key rotation",
+            employee_id="emp_rahul",
+            action_summary="Reset root admin password",
+            target_resource="iam-prod",
+            justification="Locked out of admin console",
         )
         checked = approval_service.submit_voice_verification(
             conn,
             request_id=req["request_id"],
             audio_path=str(wav),
         )
-        assert checked["status"] == "HIGH_RISK_HOLD"
-        assert checked["voice_result"]["risk"] == "FAIL"
+        assert checked["status"] == "BLOCKED"
+        assert checked["active_approval"] is None
 
-        # Blocked without callback_verified + notes
-        with pytest.raises(approval_service.ConflictError, match="callback verification"):
-            approval_service.decide_request(
-                conn,
-                request_id=req["request_id"],
-                reviewer_id="emp_bob",
-                action="approve",
-                notes="Looks ok",
-                callback_verified=False,
+        # Cannot issue approval record for a hard FAIL
+        with pytest.raises(approval_service.ConflictError):
+            approval_service.issue_approval_record(conn, request_id=req["request_id"])
+
+        # Cannot execute a hard FAIL
+        with pytest.raises(approval_service.ForbiddenError, match="cannot override"):
+            approval_service.execute_request(
+                conn, request_id=req["request_id"], actor_id="emp_rahul"
             )
 
-        # Allowed once known-number callback is documented
-        approved = approval_service.decide_request(
+
+def test_borderline_requires_peer_review_and_expiry_blocks_approval(
+    isolated_env: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    wav = tmp_path / "voice.wav"
+    wav.write_bytes(b"RIFFdemo")
+    monkeypatch.setenv("FIXTURE_SCENARIO", "borderline")
+
+    with get_db(isolated_env) as conn:
+        req = approval_service.create_request(
+            conn,
+            employee_id="emp_rahul",
+            action_summary="Terraform apply edge-waf",
+            target_resource="prod-waf",
+            justification="Emergency rate-limit rule",
+        )
+        checked = approval_service.submit_voice_verification(
             conn,
             request_id=req["request_id"],
-            reviewer_id="emp_bob",
+            audio_path=str(wav),
+        )
+        assert checked["status"] == "ESCALATED_REVIEW"
+        approval = checked["active_approval"]
+        assert approval is not None and approval["requires_peer_review"] is True
+
+        # Missing peer review confirmation rejected
+        with pytest.raises(approval_service.ConflictError, match="peer review"):
+            approval_service.decide_approval(
+                conn,
+                approval_id=approval["approval_id"],
+                reviewer_id="emp_priya",
+                action="approve",
+                matching_number=approval["matching_number"],
+                peer_review_confirmed=False,
+            )
+
+        # Simulate 2-minute expiry
+        past = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+        conn.execute(
+            "UPDATE approval_records SET expires_at = ? WHERE approval_id = ?",
+            (past, approval["approval_id"]),
+        )
+        with pytest.raises(approval_service.ConflictError, match="expired"):
+            approval_service.decide_approval(
+                conn,
+                approval_id=approval["approval_id"],
+                reviewer_id="emp_priya",
+                action="approve",
+                matching_number=approval["matching_number"],
+                notes="Called Rahul back on ext 4102",
+                peer_review_confirmed=True,
+            )
+
+        # Reissue fresh 2-min approval and complete peer review + execution
+        fresh = approval_service.issue_approval_record(conn, request_id=req["request_id"])
+        approved = approval_service.decide_approval(
+            conn,
+            approval_id=fresh["approval_id"],
+            reviewer_id="emp_carol",
             action="approve",
-            notes="Called Alice back on Corp Directory Ext. 4102 and confirmed.",
-            callback_verified=True,
+            matching_number=fresh["matching_number"],
+            notes="Verified Rahul on ext 4102 via directory callback.",
+            peer_review_confirmed=True,
         )
         assert approved["status"] == "APPROVED"
-        assert approved["callback_verified"] is True
+
+        receipt = approval_service.execute_request(
+            conn, request_id=req["request_id"], actor_id="emp_rahul"
+        )
+        assert receipt["status"] == "EXECUTED"
 
 
 def test_audit_chain_detects_tampering(isolated_env: Path) -> None:
     with get_db(isolated_env) as conn:
         approval_service.create_request(
             conn,
-            employee_id="emp_alice",
+            employee_id="emp_rahul",
             action_summary="Emergency firewall rule",
             target_resource="edge-fw-01",
             justification="Mitigate DDoS incident",
         )
         assert audit_service.verify_chain(conn)["valid"] is True
 
-        # Simulate DB tampering
         conn.execute("UPDATE audit_events SET actor_id = 'emp_attacker' WHERE id = 1")
         tampered = audit_service.verify_chain(conn)
         assert tampered["valid"] is False
         assert tampered["broken_at_id"] == 1
 
 
-def test_fastapi_endpoints_and_reviewer_token(
+def test_fastapi_full_workflow_and_reviewer_token(
     isolated_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from fastapi.testclient import TestClient
@@ -196,15 +318,14 @@ def test_fastapi_endpoints_and_reviewer_token(
     client = TestClient(create_app())
 
     assert client.get("/health").json() == {"status": "ok"}
-    assert len(client.get("/api/v1/employees").json()) >= 3
 
     created = client.post(
         "/api/v1/requests",
         json={
-            "employee_id": "emp_alice",
-            "action_summary": "Grant temporary admin",
-            "target_resource": "prod-k8s",
-            "justification": "Emergency pod recovery for SEV-1",
+            "employee_id": "emp_rahul",
+            "action_summary": "Deploy build 142 to production",
+            "target_resource": "prod-api",
+            "justification": "Emergency outage fix for SEV-1",
         },
     )
     assert created.status_code == 201
@@ -215,30 +336,49 @@ def test_fastapi_endpoints_and_reviewer_token(
         files={"file": ("voice.wav", b"RIFFdemo", "audio/wav")},
     )
     assert verified.status_code == 200
-    assert verified.json()["status"] == "PENDING_APPROVAL"
-    assert set(verified.json()["voice_result"].keys()) == {
-        "aletheia",
-        "eidos",
-        "risk",
-        "reason",
-    }
+    body = verified.json()
+    assert body["status"] == "PENDING_APPROVAL"
+    approval_id = body["active_approval"]["approval_id"]
+    matching_number = body["active_approval"]["matching_number"]
+
+    # Approver phone queue shows pending approval
+    pending = client.get("/api/v1/approvals/pending").json()
+    assert any(item["approval_id"] == approval_id for item in pending)
 
     # Missing Bearer token rejected
     unauth = client.post(
-        f"/api/v1/requests/{req_id}/decision",
-        json={"reviewer_id": "emp_bob", "action": "approve", "notes": "ok"},
+        f"/api/v1/approvals/{approval_id}/decide",
+        json={
+            "reviewer_id": "emp_priya",
+            "action": "approve",
+            "matching_number": matching_number,
+            "notes": "Confirmed SEV-1",
+        },
     )
     assert unauth.status_code == 401
 
-    # Valid Bearer token succeeds
+    # Valid Bearer token + matching number approves
     ok = client.post(
-        f"/api/v1/requests/{req_id}/decision",
+        f"/api/v1/approvals/{approval_id}/decide",
         headers={"Authorization": "Bearer secret-reviewer-token"},
-        json={"reviewer_id": "emp_bob", "action": "approve", "notes": "Confirmed SEV-1"},
+        json={
+            "reviewer_id": "emp_priya",
+            "action": "approve",
+            "matching_number": matching_number,
+            "notes": "Confirmed SEV-1",
+        },
     )
     assert ok.status_code == 200
     assert ok.json()["status"] == "APPROVED"
 
-    chain = client.get("/api/v1/audit/verify")
-    assert chain.status_code == 200
-    assert chain.json()["valid"] is True
+    # Simulated execution succeeds once
+    exec_res = client.post(
+        f"/api/v1/requests/{req_id}/execute",
+        json={"actor_id": "emp_rahul"},
+    )
+    assert exec_res.status_code == 200
+    assert exec_res.json()["status"] == "EXECUTED"
+
+    # Audit chain valid
+    chain = client.get("/api/v1/audit/verify").json()
+    assert chain["valid"] is True

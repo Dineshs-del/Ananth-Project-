@@ -14,11 +14,13 @@ RequestStatus = Literal[
     "PENDING_VOICE",
     "PENDING_APPROVAL",
     "ESCALATED_REVIEW",
-    "HIGH_RISK_HOLD",
+    "BLOCKED",
     "APPROVED",
     "REJECTED",
+    "EXECUTED",
     "EXPIRED",
 ]
+ApprovalStatus = Literal["PENDING", "APPROVED", "REJECTED", "EXPIRED", "CONSUMED"]
 RiskLevel = Literal["PASS", "BORDERLINE", "FAIL"]
 DecisionAction = Literal["approve", "reject"]
 
@@ -69,6 +71,32 @@ class VoiceCheckResultOut(BaseModel):
     reason: str
 
 
+class ApprovalRecordOut(BaseModel):
+    approval_id: str
+    request_id: str
+    action_hash: str
+    action_summary: str
+    target_resource: str
+    justification: str
+    requester_id: str
+    requester_name: str | None = None
+    known_callback_hint: str = ""
+    voice_risk: RiskLevel | None = None
+    voice_reason: str | None = None
+    matching_number: str
+    number_options: list[str]
+    requires_peer_review: bool
+    status: ApprovalStatus
+    expires_at: str
+    remaining_seconds: int
+    decided_by: str | None = None
+    decision_notes: str | None = None
+    peer_review_confirmed: bool = False
+    created_at: str
+    decided_at: str | None = None
+    consumed_at: str | None = None
+
+
 class BreakGlassRequestOut(BaseModel):
     request_id: str
     employee_id: str
@@ -77,24 +105,28 @@ class BreakGlassRequestOut(BaseModel):
     action_summary: str
     target_resource: str
     justification: str
+    action_hash: str
     status: RequestStatus
     challenge_phrase: str
     challenge_expires_at: str
     voice_attempts: int
     voice_result: VoiceCheckResultOut | None
+    active_approval: ApprovalRecordOut | None = None
     reviewer_id: str | None
     decision_notes: str | None
-    callback_verified: bool
+    execution_receipt: str | None = None
+    executed_at: str | None = None
     created_at: str
     updated_at: str
     decided_at: str | None
 
 
-class DecisionRequest(BaseModel):
+class ApprovalDecisionRequest(BaseModel):
     reviewer_id: str = Field(..., min_length=1, max_length=64)
     action: DecisionAction
+    matching_number: str | None = Field(default=None, min_length=2, max_length=2)
     notes: str = Field(default="", max_length=1000)
-    callback_verified: bool = False
+    peer_review_confirmed: bool = False
 
     @field_validator("reviewer_id")
     @classmethod
@@ -102,6 +134,28 @@ class DecisionRequest(BaseModel):
         if not EMPLOYEE_ID_PATTERN.match(value):
             raise ValueError("reviewer_id must match ^[A-Za-z0-9_.:-]{1,64}$")
         return value
+
+
+class ExecuteActionRequest(BaseModel):
+    actor_id: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("actor_id")
+    @classmethod
+    def check_actor_id(cls, value: str) -> str:
+        if not EMPLOYEE_ID_PATTERN.match(value):
+            raise ValueError("actor_id must match ^[A-Za-z0-9_.:-]{1,64}$")
+        return value
+
+
+class MockExecutionOut(BaseModel):
+    request_id: str
+    approval_id: str
+    status: Literal["EXECUTED"]
+    simulated: bool = True
+    action_summary: str
+    target_resource: str
+    execution_receipt: str
+    executed_at: str
 
 
 class AuditEventOut(BaseModel):
