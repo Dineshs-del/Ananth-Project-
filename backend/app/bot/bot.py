@@ -1,4 +1,17 @@
-"""Async Telegram bot (long polling) for checking voice notes with DetectifAI Aletheia."""
+"""Async Telegram bot (long polling) for Break-Glass Voice Gate.
+
+Supports:
+1. Voice-note deepfake checking via DetectifAI Aletheia (DM or group /check / @mention).
+2. Break-Glass Approver Console (/approver, /report, live 120s approval cards,
+   HMAC-signed callbacks, and requester plain-status updates via /requester & /status).
+3. Admin-linked voice enrollment (/link, /enroll, /done) with explicit consent,
+   15-60s validation before calling DetectifAI, 5-sample cap, and audio cleanup.
+4. Live-call risk monitoring alerts (single edited status message, latched FAIL,
+   one-time FAIL alert with Block and Call-back buttons).
+
+Fail-closed audit policy: every bot action writes to the existing hash-chained audit
+service BEFORE delivering results; if audit logging fails, the action does not proceed.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +29,7 @@ from telegram import Message, Update
 from telegram.ext import (
     Application,
     ApplicationBuilder,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -24,12 +38,16 @@ from telegram.ext import (
 
 from ..ai.config import ConfigError, load_config, load_project_dotenv
 from .analyze import analyze_audio, format_telegram_reply
+from .approver_console import ApproverConsole
 from .audio import (
     AudioConversionError,
     AudioDurationError,
     AudioSizeError,
     download_and_prepare_wav,
 )
+from .audit_bridge import AuditLoggingError, log_voice_check_result
+from .enrollment_flow import TelegramEnrollmentFlow
+from .live_call_alerts import LiveCallAlertManager, register_live_call_manager
 
 load_project_dotenv()
 
@@ -90,34 +108,22 @@ def _record_audit_hook(
     chat_type: str,
     analysis: dict[str, Any],
     ai_mode: str,
+    db_path: Path | None = None,
 ) -> None:
-    """Append check outcome to the existing hash-chained audit log if available."""
-    try:
-        from ..audit.service import record_event
-        from ..core.database import get_db, init_db
+    """Record voice check result (risk + reason ONLY) in the existing audit chain.
 
-        init_db(seed_sample_employees=False)
-        aletheia = analysis.get("aletheia") if isinstance(analysis, dict) else None
-        details: dict[str, Any] = {
-            "channel": "telegram",
-            "chat_type": chat_type,
-            "ai_mode": ai_mode,
-            "risk": analysis.get("risk"),
-            "verdict": aletheia.get("verdict") if isinstance(aletheia, dict) else None,
-            "score": aletheia.get("score") if isinstance(aletheia, dict) else None,
-            "operation_id": aletheia.get("operation_id") if isinstance(aletheia, dict) else None,
-        }
-        with get_db() as conn:
-            record_event(
-                conn,
-                event_type="TELEGRAM_VOICE_CHECK",
-                actor_id=f"tg:{user_id}",
-                request_id=None,
-                details=details,
-            )
-    except Exception:
-        # Never break the user reply if the core audit DB is not present in this branch.
-        logger.debug("Audit hook skipped (audit DB unavailable).")
+    Fail closed: raises AuditLoggingError if the audit write fails.
+    """
+    risk = str(analysis.get("risk") or "BORDERLINE") if isinstance(analysis, dict) else "BORDERLINE"
+    reason = str(analysis.get("reason") or "Voice check result unavailable.") if isinstance(analysis, dict) else "Voice check result unavailable."
+    log_voice_check_result(
+        actor_id=f"tg:{user_id}",
+        risk=risk,
+        reason=reason,
+        chat_type=chat_type,
+        ai_mode=ai_mode,
+        db_path=db_path,
+    )
 
 
 def _extract_media(message: Message | None) -> tuple[str, int | None, int | None] | None:
@@ -205,13 +211,23 @@ async def _process_audio_message(
     except ConfigError:
         ai_mode = "unknown"
 
-    await asyncio.to_thread(
-        _record_audit_hook,
-        user_id=user.id,
-        chat_type=str(chat.type),
-        analysis=analysis,
-        ai_mode=ai_mode,
-    )
+    # Fail closed: if audit logging fails, do NOT deliver the voice check result.
+    try:
+        await asyncio.to_thread(
+            _record_audit_hook,
+            user_id=user.id,
+            chat_type=str(chat.type),
+            analysis=analysis,
+            ai_mode=ai_mode,
+        )
+    except AuditLoggingError:
+        logger.warning("Audit logging failed for voice check; aborting reply (fail closed).")
+        await reply_anchor.reply_text(
+            f"{prefix}Audit logging failed, so this voice check could not proceed.\n"
+            "This is evidence, not proof.\n"
+            "Next step: Do not send money or share codes. Call the person back on a number you already know."
+        )
+        return
 
     reply_text = format_telegram_reply(analysis)
     await reply_anchor.reply_text(f"{prefix}{reply_text}")
@@ -226,18 +242,32 @@ async def handle_start(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         _seen_users.add(user.id)
     await msg.reply_text(
         f"{PERMISSION_NOTICE}\n\n"
-        "Send or forward a voice note or audio file here in DM, "
-        "or reply to a voice note in a group with /check (or mention me) "
-        "to check for synthetic-voice signs."
+        "Voice-note checker:\n"
+        "- Send or forward a voice note in DM, or reply /check (or mention me) in a group.\n\n"
+        "Voice Enrollment (admin-linked accounts):\n"
+        "- /enroll — start guided voice enrollment (15-60s clips, max 5)\n"
+        "- /done — finish enrollment session\n"
+        "- /link <telegram_user_id> <employee_id> — link a user (security_admin only)\n\n"
+        "Break-Glass Approver Console:\n"
+        "- /approver <employee_id> — register this chat as an approver console\n"
+        "- /report — verify the audit hash chain and view the last 5 events (approvers only)\n"
+        "- /requester <employee_id> — receive plain status updates (no scores)\n"
+        "- /status <request_id> — check plain status of a request"
     )
 
 
-async def handle_dm_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle voice notes or audio files sent/forwarded in direct messages."""
-    msg = update.effective_message
-    if msg is None:
-        return
-    await _process_audio_message(update, context, msg)
+def _make_dm_audio_handler(enrollment_flow: TelegramEnrollmentFlow):
+    async def handle_dm_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        msg = update.effective_message
+        user = update.effective_user
+        if msg is None:
+            return
+        if user is not None and enrollment_flow.has_active_session(user.id):
+            await enrollment_flow.handle_enrollment_audio(update, context)
+            return
+        await _process_audio_message(update, context, msg)
+
+    return handle_dm_audio
 
 
 async def handle_check_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -271,16 +301,59 @@ async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYP
     await _process_audio_message(update, context, msg.reply_to_message)
 
 
-def build_application(token: str) -> Application:
-    """Wire handlers onto a python-telegram-bot Application."""
-    app = ApplicationBuilder().token(token).build()
+def build_application(
+    token: str,
+    *,
+    console: ApproverConsole | None = None,
+    enrollment: TelegramEnrollmentFlow | None = None,
+    live_alerts: LiveCallAlertManager | None = None,
+) -> Application:
+    """Wire voice-note checker, enrollment flow, live-call alerts, and approver console."""
+    approver_console = console or ApproverConsole()
+    enrollment_flow = enrollment or TelegramEnrollmentFlow(
+        approver_chats_ref=approver_console.approver_chats,
+    )
+    live_call_alerts = live_alerts or LiveCallAlertManager(
+        approver_chats_ref=approver_console.approver_chats,
+    )
+    register_live_call_manager(live_call_alerts)
+
+    async def _post_init(application: Application) -> None:
+        await approver_console.start(application)
+        await live_call_alerts.start(application)
+
+    async def _post_shutdown(application: Application) -> None:
+        await live_call_alerts.stop(application)
+        await approver_console.stop(application)
+
+    app = (
+        ApplicationBuilder()
+        .token(token)
+        .post_init(_post_init)
+        .post_shutdown(_post_shutdown)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("check", handle_check_command))
+    app.add_handler(CommandHandler("link", enrollment_flow.handle_link_command))
+    app.add_handler(CommandHandler("enroll", enrollment_flow.handle_enroll_command))
+    app.add_handler(CommandHandler("done", enrollment_flow.handle_done_command))
+    app.add_handler(CommandHandler("approver", approver_console.handle_approver_command))
+    app.add_handler(CommandHandler("report", approver_console.handle_report_command))
+    app.add_handler(CommandHandler("requester", approver_console.handle_requester_command))
+    app.add_handler(CommandHandler("status", approver_console.handle_status_command))
+    app.add_handler(
+        CallbackQueryHandler(enrollment_flow.handle_consent_callback, pattern=r"^e[cx]:")
+    )
+    app.add_handler(
+        CallbackQueryHandler(live_call_alerts.handle_callback_query, pattern=r"^l[bc]:")
+    )
+    app.add_handler(CallbackQueryHandler(approver_console.handle_callback_query))
     app.add_handler(
         MessageHandler(
             filters.ChatType.PRIVATE & (filters.VOICE | filters.AUDIO),
-            handle_dm_audio,
+            _make_dm_audio_handler(enrollment_flow),
         )
     )
     app.add_handler(

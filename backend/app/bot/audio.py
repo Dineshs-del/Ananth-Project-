@@ -39,19 +39,24 @@ class TelegramDownloadable(Protocol):
     async def download_to_drive(self, custom_path: str | Path) -> Path: ...
 
 
-def validate_duration(duration_seconds: float) -> float:
-    """Ensure audio duration falls within Aletheia's 4 to 120 second window."""
-    if duration_seconds < MIN_DURATION_SECONDS:
+def validate_duration(
+    duration_seconds: float,
+    *,
+    min_duration: float = MIN_DURATION_SECONDS,
+    max_duration: float = MAX_DURATION_SECONDS,
+) -> float:
+    """Ensure audio duration falls within the required [min_duration, max_duration] window."""
+    if duration_seconds < min_duration:
         raise AudioDurationError(
             f"This voice clip is too short ({duration_seconds:.1f}s). "
-            f"Please send a clip between {int(MIN_DURATION_SECONDS)} and "
-            f"{int(MAX_DURATION_SECONDS)} seconds long."
+            f"Please send a clip between {int(min_duration)} and "
+            f"{int(max_duration)} seconds long."
         )
-    if duration_seconds > MAX_DURATION_SECONDS:
+    if duration_seconds > max_duration:
         raise AudioDurationError(
             f"This voice clip is too long ({duration_seconds:.1f}s). "
-            f"Please send a clip between {int(MIN_DURATION_SECONDS)} and "
-            f"{int(MAX_DURATION_SECONDS)} seconds long."
+            f"Please send a clip between {int(min_duration)} and "
+            f"{int(max_duration)} seconds long."
         )
     return float(duration_seconds)
 
@@ -70,7 +75,13 @@ def read_wav_duration(wav_path: Path) -> float:
     return frame_count / float(frame_rate)
 
 
-def convert_to_wav_16k_mono(input_path: Path, output_path: Path) -> float:
+def convert_to_wav_16k_mono(
+    input_path: Path,
+    output_path: Path,
+    *,
+    min_duration: float = MIN_DURATION_SECONDS,
+    max_duration: float = MAX_DURATION_SECONDS,
+) -> float:
     """Convert any Telegram audio file to 16 kHz mono WAV via ffmpeg (no shell=True).
 
     Returns the verified duration in seconds.
@@ -110,7 +121,11 @@ def convert_to_wav_16k_mono(input_path: Path, output_path: Path) -> float:
         raise AudioConversionError("Could not decode or convert that audio file.")
 
     duration = read_wav_duration(output_path)
-    return validate_duration(duration)
+    return validate_duration(
+        duration,
+        min_duration=min_duration,
+        max_duration=max_duration,
+    )
 
 
 async def download_and_prepare_wav(
@@ -119,18 +134,24 @@ async def download_and_prepare_wav(
     temp_dir: Path,
     declared_size: int | None = None,
     declared_duration: int | float | None = None,
+    min_duration: float = MIN_DURATION_SECONDS,
+    max_duration: float = MAX_DURATION_SECONDS,
 ) -> tuple[Path, float]:
     """Download a Telegram voice/audio file into temp_dir and convert to 16 kHz mono WAV.
 
     Caller owns `temp_dir` (e.g. `tempfile.TemporaryDirectory`) so all files are
-    deleted automatically after analysis.
+    deleted automatically after processing.
     """
     if declared_size is not None and declared_size > MAX_AUDIO_BYTES:
         max_mb = MAX_AUDIO_BYTES // (1024 * 1024)
         raise AudioSizeError(f"Audio file is too large (limit is {max_mb} MB).")
 
     if declared_duration is not None:
-        validate_duration(float(declared_duration))
+        validate_duration(
+            float(declared_duration),
+            min_duration=min_duration,
+            max_duration=max_duration,
+        )
 
     # Fixed local filenames inside temp_dir avoid trusting user-supplied filenames.
     raw_path = temp_dir / "input_audio.bin"
@@ -148,5 +169,11 @@ async def download_and_prepare_wav(
         max_mb = MAX_AUDIO_BYTES // (1024 * 1024)
         raise AudioSizeError(f"Audio file is too large (limit is {max_mb} MB).")
 
-    duration = await asyncio.to_thread(convert_to_wav_16k_mono, raw_path, wav_path)
+    duration = await asyncio.to_thread(
+        convert_to_wav_16k_mono,
+        raw_path,
+        wav_path,
+        min_duration=min_duration,
+        max_duration=max_duration,
+    )
     return wav_path, duration

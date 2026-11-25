@@ -892,6 +892,69 @@ def decide_approval(
     return get_request(conn, req["request_id"])
 
 
+def block_request(
+    conn: sqlite3.Connection,
+    *,
+    request_id: str,
+    reviewer_id: str,
+    reason: str = "",
+) -> dict[str, Any]:
+    """Mark a break-glass request BLOCKED by an authorised different-person approver.
+
+    Expires any pending or unconsumed approvals and latches voice_risk='FAIL' so the
+    blocked request can never be overridden by a subsequent approval.
+    """
+    req = get_request(conn, request_id)
+    reviewer = get_employee(conn, reviewer_id)
+
+    if reviewer["role"] not in APPROVER_ROLES:
+        raise ForbiddenError(
+            f"Employee '{reviewer_id}' has role '{reviewer['role']}' and cannot block break-glass requests."
+        )
+    if reviewer["employee_id"] == req["employee_id"]:
+        raise ForbiddenError(
+            "Different-person rule violation: the requester cannot block their own request."
+        )
+    if req["status"] == "EXECUTED":
+        raise ConflictError("Cannot block a break-glass request that has already been executed.")
+
+    now = utc_now_iso()
+    clean_reason = reason.strip() or "Blocked by approver following live-call FAIL alert."
+
+    # Invalidate any open approvals so execution is impossible.
+    conn.execute(
+        """
+        UPDATE approval_records
+        SET status = 'EXPIRED'
+        WHERE request_id = ? AND status IN ('PENDING', 'APPROVED')
+        """,
+        (request_id,),
+    )
+    conn.execute(
+        """
+        UPDATE break_glass_requests
+        SET status = 'BLOCKED',
+            voice_risk = 'FAIL',
+            voice_reason = COALESCE(NULLIF(voice_reason, ''), ?),
+            reviewer_id = ?,
+            decision_notes = ?,
+            updated_at = ?,
+            decided_at = ?
+        WHERE request_id = ?
+        """,
+        (clean_reason, reviewer["employee_id"], clean_reason, now, now, request_id),
+    )
+
+    record_event(
+        conn,
+        event_type="REQUEST_BLOCKED",
+        actor_id=reviewer["employee_id"],
+        request_id=request_id,
+        details={"reason": clean_reason[:200], "outcome": "blocked"},
+    )
+    return get_request(conn, request_id)
+
+
 def execute_request(
     conn: sqlite3.Connection,
     *,
