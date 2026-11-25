@@ -13,11 +13,19 @@ import pytest
 
 try:
     from backend.app.ai import challenge, enrollment, policy, voice_check
-    from backend.app.ai.detectif_client import DetectifClient, DetectifError
+    from backend.app.ai.detectif_client import (
+        DetectifClient,
+        DetectifError,
+        _normalize_verify_response,
+    )
     from backend.app.ai.voice_check import verify_voice
 except ModuleNotFoundError:
     from app.ai import challenge, enrollment, policy, voice_check  # type: ignore[no-redef]
-    from app.ai.detectif_client import DetectifClient, DetectifError  # type: ignore[no-redef]
+    from app.ai.detectif_client import (  # type: ignore[no-redef]
+        DetectifClient,
+        DetectifError,
+        _normalize_verify_response,
+    )
     from app.ai.voice_check import verify_voice  # type: ignore[no-redef]
 
 
@@ -256,6 +264,83 @@ def test_verify_speaker_deepfake_error_marks_aletheia_unavailable(
     assert res["aletheia_status"] == "unavailable"
     assert res["deepfake"] is None
     assert res["result"]["decision"] == "match"
+
+
+def _documented_verify_response(deepfake: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "request_id": "req_docs_shape",
+        "operation_id": "op_verify_docs",
+        "object": "speaker.verification",
+        "speaker_id": "emp_001",
+        "result": {
+            "decision": "match",
+            "similarity": 0.7412,
+            "threshold": 0.5,
+            "similarity_semantics": "Higher means the voices are more alike.",
+            "duration_seconds": 4.1,
+        },
+        "deepfake": deepfake,
+        "model": {"name": "eidos", "version": "2026.10"},
+        "credits": {"charged": 2, "balance": 98},
+        "latency_ms": 1200,
+        "idempotent_replay": False,
+    }
+
+
+def test_parsers_read_documented_combined_verify_shape() -> None:
+    raw = _documented_verify_response(
+        {
+            "verdict": "real",
+            "label": "genuine",
+            "is_synthetic": False,
+            "score": 0.08,
+            "score_semantics": "Higher means more likely AI-generated.",
+            "duration_seconds": 4.1,
+            "scored_seconds": None,
+            "segments": [{"start": 0.0, "end": 2.0, "score": 0.07, "verdict": "real"}],
+            "operation_id": "op_deepfake_docs",
+            "credits_charged": 1,
+            "model": {"name": "aletheia", "version": "2026.10"},
+        }
+    )
+
+    assert voice_check._parse_eidos_response(raw) == {
+        "decision": "match",
+        "similarity": 0.7412,
+        "duration_seconds": 4.1,
+        "operation_id": "op_verify_docs",
+    }
+    assert voice_check._parse_aletheia_from_verify(raw) == {
+        "verdict": "real",
+        "score": 0.08,
+        "duration_seconds": 4.1,
+        "operation_id": "op_deepfake_docs",
+    }
+
+
+def test_normalizer_and_parsers_fail_closed_on_documented_deepfake_error() -> None:
+    raw = _documented_verify_response(
+        {
+            "error": {
+                "type": "internal",
+                "code": "service_unavailable",
+                "message": "busy",
+            },
+            "operation_id": "op_deepfake_error",
+            "credits_charged": 0,
+        }
+    )
+
+    normalized = _normalize_verify_response(raw)
+    assert normalized["aletheia_status"] == "unavailable"
+    assert normalized["deepfake"] is None
+    assert voice_check._parse_aletheia_from_verify(normalized) is None
+    assert voice_check._parse_eidos_response(normalized) == {
+        "decision": "match",
+        "similarity": 0.7412,
+        "duration_seconds": 4.1,
+        "operation_id": "op_verify_docs",
+    }
 
 
 def test_enroll_employee_local_validation_and_409_cap(tmp_path: Path) -> None:

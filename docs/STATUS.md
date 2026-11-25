@@ -1,5 +1,10 @@
 # Status
 
+## Detectif response-shape audit
+- Audited `_parse_eidos_response`, `_parse_aletheia_from_verify`, and `_normalize_verify_response` against the documented `/v1/speakers/verify` schema. Field names and shapes already match, so no parser changes were made.
+- Added regression tests for the documented combined response (including extra fields) and the documented `deepfake.error` shape; suite: 89 passed.
+- No `raw_*.json` captures exist in this branch or its history, so fixture regeneration and threshold calibration remain pending; no secrets were printed or written.
+
 ## Response source field
 - Added additive `source: "live" | "fixture"` to `/verify-voice` responses (via `BreakGlassRequestWithSourceOut`) and to live chunk responses; the 4-key `voice_result` contract is unchanged.
 - Live chunk source follows `AI_MODE` and falls back to `"fixture"` on config errors; mocked tests assert both live and fixture chunk responses.
