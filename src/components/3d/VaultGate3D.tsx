@@ -1,9 +1,8 @@
 import React, { Suspense, useEffect, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
 import { FallbackGate, type GateVisualState } from './FallbackGate';
 
-const VaultSceneLazy = React.lazy(() =>
-  import('./VaultScene').then((m) => ({ default: m.VaultScene }))
+const LazyCanvasWrapper = React.lazy(() =>
+  import('./LazyCanvasWrapper').then((m) => ({ default: m.LazyCanvasWrapper }))
 );
 
 function isWebGLAvailable(): boolean {
@@ -43,13 +42,7 @@ export const VaultGate3D: React.FC<VaultGate3DProps> = ({ state, className = '' 
       className={`relative w-full h-[280px] sm:h-[320px] flex items-center justify-center ${className}`}
     >
       <Suspense fallback={<FallbackGate state={state} />}>
-        <Canvas
-          camera={{ position: [0, 0, 5.2], fov: 45 }}
-          style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
-          gl={{ antialias: true, alpha: true }}
-        >
-          <VaultSceneLazy state={state} />
-        </Canvas>
+        <LazyCanvasWrapper state={state} />
       </Suspense>
 
       {/* Overlay Status Badge */}
