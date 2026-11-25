@@ -11,3 +11,22 @@ __pycache__/
 .venv/
 .pytest_cache/
 backend/data/
+
+# Biometric voice data protection
+samples/
+samples/**/*.wav
+samples/**/*.ogg
+samples/**/*.m4a
+samples/**/*.mp3
+samples/**/*.flac
+backend/data/**/*.wav
+backend/data/**/*.ogg
+backend/data/**/*.m4a
+backend/data/**/*.mp3
+backend/data/**/*.flac
+*.wav
+*.ogg
+*.m4a
+*.mp3
+*.flac
+
