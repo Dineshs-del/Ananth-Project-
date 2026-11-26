@@ -54,9 +54,8 @@ export const TelegramPreview: React.FC<TelegramPreviewProps> = ({
     {
       id: '3',
       sender: 'bot',
-      text: `🚨 *BREAK-GLASS APPROVAL REQUIRED*\n\n*Action:* ${
-        activeRequest?.action_summary || 'Drain traffic & rotate TLS keys'
-      }\n*Target:* \`${activeRequest?.target_resource || 'k8s-prod-us-east'}\`\n*Requester:* Rahul Sharma (emp_rahul)\n*Aletheia Verdict:* REAL (Score: 0.12)\n\n⏱ *Window:* 120s remaining\n*Tap the matching 2-digit number:*`,
+      text: `🚨 *BREAK-GLASS APPROVAL REQUIRED*\n\n*Action:* ${activeRequest?.action_summary || 'Drain traffic & rotate TLS keys'
+        }\n*Target:* \`${activeRequest?.target_resource || 'k8s-prod-us-east'}\`\n*Requester:* Rahul Sharma (emp_rahul)\n*Aletheia Verdict:* REAL (Score: 0.12)\n\n⏱ *Window:* 120s remaining\n*Tap the matching 2-digit number:*`,
       time: '12:01 PM',
       buttons: [
         { text: activeRequest?.active_approval?.number_options[0] || '42', action: 'match' },
@@ -155,16 +154,15 @@ export const TelegramPreview: React.FC<TelegramPreviewProps> = ({
 
       case '/report':
         const recentEvents = auditEvents.slice(0, 5);
-        const reportText = `📜 *Hash-Chain Audit Report*\n\n*Integrity:* VALID (Chain unbroken)\n*Total Chained Events:* ${auditEvents.length}\n\n*Recent Audit Entries:*\n${
-          recentEvents.length > 0
+        const reportText = `📜 *Hash-Chain Audit Report*\n\n*Integrity:* VALID (Chain unbroken)\n*Total Chained Events:* ${auditEvents.length}\n\n*Recent Audit Entries:*\n${recentEvents.length > 0
             ? recentEvents
-                .map(
-                  (e) =>
-                    `• \`#${e.id}\` *${e.event_type}* (${e.actor_id}) → \`${e.event_hash.slice(0, 8)}...\``
-                )
-                .join('\n')
+              .map(
+                (e) =>
+                  `• \`#${e.id}\` *${e.event_type}* (${e.actor_id}) → \`${e.event_hash.slice(0, 8)}...\``
+              )
+              .join('\n')
             : '• `#1` INITIAL_KEYSTORE_SEED → `00000000...`'
-        }`;
+          }`;
         simulateBotReply('/report', { text: reportText });
         break;
 
@@ -246,13 +244,12 @@ export const TelegramPreview: React.FC<TelegramPreviewProps> = ({
                       className={`flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'}`}
                     >
                       <div
-                        className={`max-w-[85%] p-3 rounded-2xl space-y-2 shadow-md leading-relaxed ${
-                          m.sender === 'user'
+                        className={`max-w-[85%] p-3 rounded-2xl space-y-2 shadow-md leading-relaxed ${m.sender === 'user'
                             ? 'bg-cyan-600 text-white rounded-tr-xs font-mono'
                             : m.isAlert
                               ? 'bg-rose-950/80 text-rose-100 border border-rose-500/40 rounded-tl-xs'
                               : 'bg-[#18253d] text-slate-100 border border-white/5 rounded-tl-xs'
-                        }`}
+                          }`}
                       >
                         <div className="whitespace-pre-wrap">{m.text}</div>
 
@@ -264,13 +261,12 @@ export const TelegramPreview: React.FC<TelegramPreviewProps> = ({
                                 key={bIdx}
                                 type="button"
                                 onClick={() => handleButtonClick(btn.action, btn.text)}
-                                className={`py-1.5 px-2 text-[11px] font-mono rounded-lg transition-all text-center cursor-pointer ${
-                                  btn.variant === 'danger'
+                                className={`py-1.5 px-2 text-[11px] font-mono rounded-lg transition-all text-center cursor-pointer ${btn.variant === 'danger'
                                     ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30'
                                     : btn.variant === 'success'
                                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
                                       : 'bg-white/10 hover:bg-white/15 text-cyan-300 border border-white/10'
-                                }`}
+                                  }`}
                               >
                                 {btn.text}
                               </button>
